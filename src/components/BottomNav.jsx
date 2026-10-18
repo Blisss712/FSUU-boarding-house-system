@@ -1,5 +1,5 @@
 import React from 'react';
-import { Compass, Bookmark, Home, User, MapPin } from 'lucide-react';
+import { Compass, Bookmark, Home, User } from 'lucide-react';
 
 export default function BottomNav({
   activeTab,
@@ -9,26 +9,26 @@ export default function BottomNav({
 }) {
   return (
     <>
-      {/* Floating Map Pill Button */}
+      {/* Exact Floating Map View Pill matching mockup */}
       {activeTab === 'explore' && (
         <div className="fixed bottom-20 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
           <button
             onClick={onOpenMap}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-full bg-[#0a1835] hover:bg-[#102450] text-white text-xs font-black shadow-xl border border-white/20 backdrop-blur-md transition-all hover:scale-105 active:scale-95"
+            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0b1a30] hover:bg-[#152a4d] text-white text-[12.5px] font-black shadow-xl border border-white/10 transition-all hover:scale-102 active:scale-98"
           >
-            <MapPin className="w-4 h-4 text-amber-400" />
+            <span className="text-amber-400 text-sm">📍</span>
             <span>Map View & Proximity</span>
           </button>
         </div>
       )}
 
       {/* Bottom Nav Bar */}
-      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-lg">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-6 py-2 shadow-sm">
         <div className="max-w-md mx-auto flex items-center justify-between">
           <button
             onClick={() => setActiveTab('explore')}
             className={`flex flex-col items-center gap-1 py-1 transition-colors ${
-              activeTab === 'explore' ? 'text-blue-900 font-extrabold' : 'text-slate-500 font-medium hover:text-slate-800'
+              activeTab === 'explore' ? 'text-[#0b1a30] font-extrabold' : 'text-slate-400 font-medium hover:text-slate-700'
             }`}
           >
             <Compass className={`w-5 h-5 ${activeTab === 'explore' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
@@ -38,7 +38,7 @@ export default function BottomNav({
           <button
             onClick={() => setActiveTab('saved')}
             className={`flex flex-col items-center gap-1 py-1 transition-colors relative ${
-              activeTab === 'saved' ? 'text-blue-900 font-extrabold' : 'text-slate-500 font-medium hover:text-slate-800'
+              activeTab === 'saved' ? 'text-[#0b1a30] font-extrabold' : 'text-slate-400 font-medium hover:text-slate-700'
             }`}
           >
             <div className="relative">
@@ -55,7 +55,7 @@ export default function BottomNav({
           <button
             onClick={() => setActiveTab('myroom')}
             className={`flex flex-col items-center gap-1 py-1 transition-colors ${
-              activeTab === 'myroom' ? 'text-blue-900 font-extrabold' : 'text-slate-500 font-medium hover:text-slate-800'
+              activeTab === 'myroom' ? 'text-[#0b1a30] font-extrabold' : 'text-slate-400 font-medium hover:text-slate-700'
             }`}
           >
             <Home className={`w-5 h-5 ${activeTab === 'myroom' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
@@ -65,7 +65,7 @@ export default function BottomNav({
           <button
             onClick={() => setActiveTab('profile')}
             className={`flex flex-col items-center gap-1 py-1 transition-colors ${
-              activeTab === 'profile' ? 'text-blue-900 font-extrabold' : 'text-slate-500 font-medium hover:text-slate-800'
+              activeTab === 'profile' ? 'text-[#0b1a30] font-extrabold' : 'text-slate-400 font-medium hover:text-slate-700'
             }`}
           >
             <User className={`w-5 h-5 ${activeTab === 'profile' ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
