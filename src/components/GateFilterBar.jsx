@@ -1,5 +1,5 @@
 import React from 'react';
-import { Footprints, ShieldCheck, Zap, Droplets, ChevronDown } from 'lucide-react';
+import { Footprints, ShieldCheck, Zap, Droplets, ChevronDown, SlidersHorizontal } from 'lucide-react';
 
 export default function GateFilterBar({
   selectedGate,
@@ -9,16 +9,18 @@ export default function GateFilterBar({
   powerBackupOnly,
   setPowerBackupOnly,
   boosterPumpOnly,
-  setBoosterPumpOnly
+  setBoosterPumpOnly,
+  onOpenAdvancedFilter,
+  selectedZone
 }) {
   return (
-    <div className="w-full overflow-x-auto no-scrollbar py-2.5 px-4 bg-white border-b border-slate-100">
+    <div className="w-full overflow-x-auto no-scrollbar py-2.5 px-4 bg-white border-b border-slate-100 flex items-center justify-between gap-2">
       <div className="flex items-center gap-2 min-w-max">
         {/* SF Gate (Main) */}
         <button
-          onClick={() => setSelectedGate(selectedGate === 'sf' ? 'all' : 'sf')}
+          onClick={() => setSelectedGate(selectedGate === 'sf-gate' ? 'all' : 'sf-gate')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all ${
-            selectedGate === 'sf'
+            selectedGate === 'sf-gate'
               ? 'bg-[#0b1a30] text-white shadow-xs'
               : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
           }`}
@@ -30,22 +32,22 @@ export default function GateFilterBar({
 
         {/* JC Aquino Ave Gate */}
         <button
-          onClick={() => setSelectedGate(selectedGate === 'jc' ? 'all' : 'jc')}
+          onClick={() => setSelectedGate(selectedGate === 'jc-gate' ? 'all' : 'jc-gate')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all border ${
-            selectedGate === 'jc'
+            selectedGate === 'jc-gate'
               ? 'bg-[#0b1a30] text-white border-[#0b1a30] shadow-xs'
               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
           }`}
         >
           <span className="text-sm leading-none">🏛️</span>
-          <span>JC Aquino Ave Gate</span>
+          <span>JC Aquino Gate</span>
         </button>
 
-        {/* Morelos Campus */}
+        {/* Morelos Campus Gate */}
         <button
-          onClick={() => setSelectedGate(selectedGate === 'morelos' ? 'all' : 'morelos')}
+          onClick={() => setSelectedGate(selectedGate === 'morelos-main' ? 'all' : 'morelos-main')}
           className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all border ${
-            selectedGate === 'morelos'
+            selectedGate === 'morelos-main'
               ? 'bg-[#0b1a30] text-white border-[#0b1a30] shadow-xs'
               : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
           }`}
@@ -77,7 +79,7 @@ export default function GateFilterBar({
           }`}
         >
           <Zap className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
-          <span>Backup Gen / Solar</span>
+          <span>Backup Solar</span>
         </button>
 
         {/* Booster Pump */}
@@ -93,6 +95,13 @@ export default function GateFilterBar({
           <span>Booster Pump</span>
         </button>
       </div>
+
+      {/* Advanced Filter Quick Pill */}
+      {selectedZone !== 'All Zones' && (
+        <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-900 border border-blue-200 text-[11px] font-bold whitespace-nowrap">
+          📍 {selectedZone}
+        </span>
+      )}
     </div>
   );
 }
