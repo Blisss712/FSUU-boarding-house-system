@@ -241,9 +241,28 @@ export default function App() {
       });
   }, [user, token]);
 
-  // Keep landlord navigation strictly on landlord tabs (listings / explore / profile)
+  // Enforce role-based navigation and reset restricted views on logout, so a
+  // signed-out user (or someone who logs in with a different role) can never
+  // see the previous account's My Listings or the admin Audit Portal.
   useEffect(() => {
-    if (user?.role === 'landlord' && (activeTab === 'myroom' || activeTab === 'saved')) {
+    const isAdmin = user?.role === 'admin' || Boolean(user?.isAdmin);
+    const isLandlord = user?.role === 'landlord';
+
+    if (!user) {
+      // Signed out: only public views remain.
+      if (activeTab === 'audits' || activeTab === 'listings') {
+        setActiveTab('explore');
+      }
+      setSelectedProperty(null);
+      setViewingLandlord(null);
+      return;
+    }
+
+    if (activeTab === 'audits' && !isAdmin) {
+      setActiveTab(isLandlord ? 'listings' : 'explore');
+    } else if (activeTab === 'listings' && !isLandlord) {
+      setActiveTab('explore');
+    } else if ((activeTab === 'myroom' || activeTab === 'saved') && isLandlord) {
       setActiveTab('listings');
     }
   }, [user, activeTab]);
@@ -638,7 +657,7 @@ export default function App() {
           onOpenAuth={(mode) => setAuthModal(mode)}
           onUpdateProperty={handleEditProperty}
         />
-      ) : activeTab === 'audits' ? (
+      ) : activeTab === 'audits' && (user?.role === 'admin' || user?.isAdmin) ? (
         <div className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
           <AdminAuditPortalView
             properties={properties}
@@ -646,7 +665,7 @@ export default function App() {
             onUpdateProperty={handleEditProperty}
           />
         </div>
-      ) : activeTab === 'listings' || (activeTab === 'saved' && user?.role === 'landlord') ? (
+      ) : user?.role === 'landlord' && (activeTab === 'listings' || activeTab === 'saved') ? (
         <div className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
           <MyListingsView
             properties={myListings}
