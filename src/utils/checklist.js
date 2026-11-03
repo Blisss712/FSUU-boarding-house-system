@@ -11,6 +11,8 @@
  * 6. Wi-Fi speed (Mbps download / upload)
  */
 
+import { formatDistance } from './distance';
+
 export function getStudentChecklist(property) {
   if (!property) return null;
 
@@ -45,7 +47,7 @@ export function getStudentChecklist(property) {
   const distanceItem = {
     minutes: walkMinutes,
     meters: distanceMeters,
-    label: walkMinutes <= 15 ? `${walkMinutes} min walk (${distanceMeters}m)` : `1 Trike ride (₱15) to school`,
+    label: walkMinutes <= 15 ? `${walkMinutes} min walk (${formatDistance(distanceMeters)})` : `1 Trike ride (₱15) to school`,
     badge: `🚶 ${walkMinutes} min walk to campus`,
     isSuperClose,
     isWalkable

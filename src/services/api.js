@@ -54,6 +54,12 @@ function sanitizeRow(row) {
   return copy;
 }
 
+function toCoordinate(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
 function publicUser(row) {
   if (!row) return null;
   const { passwordHash: _, ...safe } = row;
@@ -528,6 +534,8 @@ export const api = {
       trikeFare: propData.trikeFare || '',
       badges: propData.badges || {},
       mapCoordinates: propData.mapCoordinates || { x: 50, y: 50 },
+      latitude: toCoordinate(propData.latitude),
+      longitude: toCoordinate(propData.longitude),
       floodRating: propData.floodRating || {},
       waterSystem: propData.waterSystem || {},
       powerSystem: propData.powerSystem || {},
@@ -542,11 +550,23 @@ export const api = {
       updatedAt: new Date().toISOString()
     };
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('properties')
       .insert([record])
       .select()
       .maybeSingle();
+
+    // Backward compatibility: latitude/longitude arrive with the
+    // supabase/add-map-coordinates.sql migration. If it has not been run yet,
+    // still publish the listing instead of failing the whole form.
+    if (error && /latitude|longitude/i.test(error.message || '')) {
+      const { latitude: _lat, longitude: _lng, ...withoutCoordinates } = record;
+      ({ data, error } = await supabase
+        .from('properties')
+        .insert([withoutCoordinates])
+        .select()
+        .maybeSingle());
+    }
 
     if (error) {
       console.error('[Supabase createProperty error]:', error.message);
@@ -589,6 +609,9 @@ export const api = {
       payload.price = price;
     }
 
+    if (payload.latitude !== undefined) payload.latitude = toCoordinate(payload.latitude);
+    if (payload.longitude !== undefined) payload.longitude = toCoordinate(payload.longitude);
+
     // Do not overwrite ID
     delete payload.id;
 
@@ -598,7 +621,7 @@ export const api = {
       'gender', 'statusTag', 'statusColor', 'availableCount', 'price',
       'priceSubtext', 'advanceDeposit', 'minContract', 'rating', 'reviewCount',
       'landlord', 'images', 'gateProximities', 'trikeFare', 'badges',
-      'mapCoordinates', 'buildingCondition', 'floodRating', 'waterSystem', 'powerSystem',
+      'mapCoordinates', 'latitude', 'longitude', 'buildingCondition', 'floodRating', 'waterSystem', 'powerSystem',
       'wifiAudit', 'commuteSteps', 'amenities', 'rules', 'vibeChecks',
       'povRoute', 'updatedAt'
     ];
@@ -610,12 +633,26 @@ export const api = {
       }
     }
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
       .from('properties')
       .update(safePayload)
       .eq('id', id)
       .select()
       .maybeSingle();
+
+    // Same backward compatibility as createProperty: if the coordinate columns
+    // are missing, save everything else and leave the map position untouched.
+    if (error && /latitude|longitude/i.test(error.message || '')) {
+      const fallbackPayload = { ...safePayload };
+      delete fallbackPayload.latitude;
+      delete fallbackPayload.longitude;
+      ({ data, error } = await supabase
+        .from('properties')
+        .update(fallbackPayload)
+        .eq('id', id)
+        .select()
+        .maybeSingle());
+    }
 
     if (error) {
       console.error('[Supabase updateProperty error]:', error.message);

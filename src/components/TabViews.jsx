@@ -15,6 +15,7 @@ import PadTenantsModal from './PadTenantsModal';
 import PadGroupChatModal from './PadGroupChatModal';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
+import { padHasCurfew } from '../utils/curfew';
 
 export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onOpenChat, onViewLandlord, onOpenAuth }) {
   const { user } = useAuth();
@@ -135,10 +136,12 @@ export function MyListingsView({
       await Promise.all(
         properties.map(async (p) => {
           try {
-            // 1. Curfew slips count
-            const curfewRes = await api.getCurfewSlipsByProperty(p.id);
-            if (curfewRes && Array.isArray(curfewRes.data)) {
-              counts[p.id] = curfewRes.data.filter(s => (s.status || 'pending') === 'pending').length;
+            // 1. Curfew slips count (pads without a curfew have no pass feature)
+            if (padHasCurfew(p)) {
+              const curfewRes = await api.getCurfewSlipsByProperty(p.id);
+              if (curfewRes && Array.isArray(curfewRes.data)) {
+                counts[p.id] = curfewRes.data.filter(s => (s.status || 'pending') === 'pending').length;
+              }
             }
 
             // 2. Tenants directory
@@ -606,7 +609,7 @@ export function MyListingsView({
                 )}
 
                 {/* Pending Curfew Exemption Notice Alert for Landlord */}
-                {(pendingCounts[p.id] || 0) > 0 && (
+                {padHasCurfew(p) && (pendingCounts[p.id] || 0) > 0 && (
                   <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
                     <div className="flex items-center gap-2">
                       <div className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-ping shrink-0" />
@@ -660,28 +663,30 @@ export function MyListingsView({
                     </button>
                   )}
 
-                  {/* Curfew Passes Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCurfewProperty(p);
-                      setIsCurfewApprovalOpen(true);
-                    }}
-                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                      (pendingCounts[p.id] || 0) > 0
-                        ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-xs ring-2 ring-amber-400/40'
-                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-200'
-                    }`}
-                    title="Review and approve student curfew exemption passes"
-                  >
-                    <Clock className={`w-3.5 h-3.5 ${(pendingCounts[p.id] || 0) > 0 ? 'text-slate-950' : 'text-emerald-700'}`} />
-                    <span>Curfew Passes</span>
-                    {(pendingCounts[p.id] || 0) > 0 && (
-                      <span className="px-1.5 py-0.2 rounded-full bg-slate-950 text-white text-[10px] font-black leading-none">
-                        {pendingCounts[p.id]}
-                      </span>
-                    )}
-                  </button>
+                  {/* Curfew Passes Button (only for pads that enforce a curfew) */}
+                  {padHasCurfew(p) && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedCurfewProperty(p);
+                        setIsCurfewApprovalOpen(true);
+                      }}
+                      className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                        (pendingCounts[p.id] || 0) > 0
+                          ? 'bg-amber-500 text-slate-950 hover:bg-amber-400 shadow-xs ring-2 ring-amber-400/40'
+                          : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-200'
+                      }`}
+                      title="Review and approve student curfew exemption passes"
+                    >
+                      <Clock className={`w-3.5 h-3.5 ${(pendingCounts[p.id] || 0) > 0 ? 'text-slate-950' : 'text-emerald-700'}`} />
+                      <span>Curfew Passes</span>
+                      {(pendingCounts[p.id] || 0) > 0 && (
+                        <span className="px-1.5 py-0.2 rounded-full bg-slate-950 text-white text-[10px] font-black leading-none">
+                          {pendingCounts[p.id]}
+                        </span>
+                      )}
+                    </button>
+                  )}
 
                   {/* Pad Residents Button */}
                   <button
@@ -1490,7 +1495,8 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
         )}
       </div>
 
-      {/* Digital Curfew Pass Slip Section */}
+      {/* Digital Curfew Pass Slip Section (hidden for pads with no curfew) */}
+      {padHasCurfew(property) && (
       <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
@@ -1668,6 +1674,7 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
           </div>
         )}
       </div>
+      )}
 
       {/* Verified Official Rent Receipts & Escrow */}
       <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">

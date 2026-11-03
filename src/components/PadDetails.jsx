@@ -21,7 +21,11 @@ import {
   Calculator, 
   Building2, 
   ChevronRight,
-  KeyRound
+  KeyRound,
+  MapPin,
+  Maximize2,
+  Navigation,
+  Pencil
 } from 'lucide-react';
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
@@ -29,6 +33,11 @@ import LandlordProfileSheet from './LandlordProfileSheet';
 import BoardUnitModal from './BoardUnitModal';
 import AdminAuditModal from './AdminAuditModal';
 import CurfewApprovalModal from './CurfewApprovalModal';
+import PadEditorModal from './PadEditorModal';
+import PropertyMap from './PropertyMap';
+import { resolveCoordinates, hasExactCoordinates } from '../lib/mapConfig';
+import { padHasCurfew } from '../utils/curfew';
+import { getGateDistance } from '../utils/distance';
 
 export default function PadDetails({ 
   property, 
@@ -58,6 +67,8 @@ export default function PadDetails({
   const [isBoardModalOpen, setIsBoardModalOpen] = useState(false);
   const [isAdminAuditOpen, setIsAdminAuditOpen] = useState(false);
   const [isCurfewApprovalOpen, setIsCurfewApprovalOpen] = useState(false);
+  const [isLocationMapExpanded, setIsLocationMapExpanded] = useState(false);
+  const [isLocationEditorOpen, setIsLocationEditorOpen] = useState(false);
 
   useEffect(() => {
     if (!propAppliances || propAppliances.length === 0) {
@@ -129,6 +140,21 @@ export default function PadDetails({
     experience: 'Resident Owner & Caretaker',
     ...rawLandlord
   };
+
+  // Only the owning host may re-pin this pad on the map.
+  const isOwner =
+    Boolean(user) &&
+    user.role === 'landlord' &&
+    ((landlord.userId && user.id && String(landlord.userId) === String(user.id)) ||
+      (landlord.email &&
+        user.email &&
+        String(landlord.email).toLowerCase() === String(user.email).toLowerCase()));
+
+  const pinCoords = resolveCoordinates(propToUse);
+  const hasExactPin = hasExactCoordinates(propToUse);
+  // The profile always shows both walk and commute time, whatever the feed shows.
+  const gateDistance = getGateDistance(propToUse);
+  const directionsUrl = `https://www.google.com/maps/dir/?api=1&destination=${pinCoords.lat},${pinCoords.lng}`;
 
   const safeImages = Array.isArray(rawImages) && rawImages.length > 0
     ? rawImages
@@ -208,6 +234,9 @@ export default function PadDetails({
   const rules = Array.isArray(rawRules) ? rawRules.map(rule =>
     typeof rule === 'string' ? { title: rule, desc: 'House regulation' } : rule
   ) : [];
+
+  // Pads with no gate curfew also have no digital curfew pass feature.
+  const hasCurfew = padHasCurfew(propToUse);
 
   const vibeChecks = {
     studyNoise: 4.5,
@@ -504,6 +533,108 @@ export default function PadDetails({
                 </div>
                 <div className="w-7 h-7 rounded-full bg-slate-100 group-hover/landlord:bg-blue-50 text-slate-400 group-hover/landlord:text-blue-600 flex items-center justify-center transition-colors">
                   <ChevronRight className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+
+            {/* Exact Location & Map View */}
+            <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xs overflow-hidden">
+              <div className="p-5 pb-3 flex items-start justify-between gap-3 flex-wrap">
+                <div className="min-w-0">
+                  <h3 className="font-extrabold text-base text-[#0b1a30] flex items-center gap-2">
+                    <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+                    Exact Location & Map View
+                  </h3>
+                  <p className="text-xs text-slate-500 font-medium mt-0.5 truncate">
+                    📍 {area}{propToUse.zone ? ` · ${propToUse.zone}` : ''}
+                  </p>
+                </div>
+                <span
+                  className={`px-3 py-1 rounded-full text-[11px] font-extrabold border shrink-0 ${
+                    hasExactPin
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                      : 'bg-amber-50 text-amber-900 border-amber-200'
+                  }`}
+                >
+                  {hasExactPin ? 'Exact pin set by host' : 'Approximate pin'}
+                </span>
+              </div>
+
+              <div className="relative h-64 sm:h-72 mx-5 rounded-2xl overflow-hidden border border-slate-200 bg-[#eef2f6]">
+                <PropertyMap
+                  properties={[propToUse]}
+                  selectedId={propToUse.id}
+                  compact
+                  scrollWheelZoom={false}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => setIsLocationMapExpanded(true)}
+                  className="absolute top-3 right-3 z-30 px-3 py-1.5 rounded-xl bg-white/95 backdrop-blur-md border border-slate-200 text-[11px] font-extrabold text-slate-800 shadow-sm hover:bg-white transition-colors flex items-center gap-1.5 cursor-pointer"
+                  title="Open the full-size map view"
+                >
+                  <Maximize2 className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Expand Map</span>
+                </button>
+              </div>
+
+              <div className="p-5 pt-3 space-y-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] font-bold">
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                    <span className="truncate">
+                      {gateDistance?.distanceLabel ? `${gateDistance.distanceLabel} to SF Gate` : 'Distance not set'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <Footprints className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                    <span className="truncate">
+                      {gateDistance?.walkMinutes ? `${gateDistance.walkMinutes} min walk` : 'Walk time not set'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                    <span className="truncate">
+                      {gateDistance?.commuteMinutes ? `${gateDistance.commuteMinutes} min ride` : 'Ride time not set'}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-100 flex items-center gap-2">
+                    <MapPin className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                    <span className="truncate">
+                      {pinCoords.lat.toFixed(5)}, {pinCoords.lng.toFixed(5)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-0.5">
+                  <span className="text-[10.5px] text-slate-400 font-semibold">
+                    WGS84 coordinates · OpenStreetMap tiles
+                  </span>
+
+                  <div className="flex items-center gap-2">
+                    {isOwner && (
+                      <button
+                        type="button"
+                        onClick={() => setIsLocationEditorOpen(true)}
+                        className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        title="Drag the pin to your boarding house's exact spot"
+                      >
+                        <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                        <span>Edit Pin Location</span>
+                      </button>
+                    )}
+
+                    <a
+                      href={directionsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="px-3.5 py-2 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                    >
+                      <Navigation className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Get Directions</span>
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -892,7 +1023,9 @@ export default function PadDetails({
                   Campus Walking Route & Proximity
                 </h3>
                 <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-extrabold border border-blue-200">
-                  📍 {property.gateProximities?.mainSFGate?.distanceMeters || 260}m ({property.gateProximities?.mainSFGate?.walkingMinutes || 3} min walk)
+                  {gateDistance
+                    ? `📍 ${gateDistance.distanceLabel || 'Distance not set'} · ${gateDistance.walkMinutes} min walk · ${gateDistance.commuteMinutes} min ride`
+                    : '📍 Distance to campus not set'}
                 </span>
               </div>
               <div className="space-y-1.5 text-xs text-slate-600">
@@ -924,7 +1057,7 @@ export default function PadDetails({
             </div>
 
             {/* Landlord Curfew Exemption Passes Review Div */}
-            {user?.role === 'landlord' && (
+            {user?.role === 'landlord' && hasCurfew && (
               <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200/90 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-700 shrink-0">
@@ -962,7 +1095,7 @@ export default function PadDetails({
               </h3>
               <div className="space-y-2">
                 {rules.map((rule, idx) => {
-                  const isCurfewRule = (rule.title || '').toLowerCase().includes('curfew') || (rule.title || '').toLowerCase().includes('gate');
+                  const isCurfewRule = rule.curfew !== false && ((rule.title || '').toLowerCase().includes('curfew') || (rule.title || '').toLowerCase().includes('gate'));
                   return (
                     <div key={idx} className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
                       <div className="flex items-center justify-between gap-2 flex-wrap">
@@ -1243,6 +1376,83 @@ export default function PadDetails({
             onUpdateProperty?.(saved.id, saved);
           }}
           onClose={() => setIsAdminAuditOpen(false)}
+        />
+      )}
+
+      {/* Expanded Full-Size Location Map */}
+      {isLocationMapExpanded && (
+        <div className="fixed inset-0 z-[60] bg-slate-950/80 backdrop-blur-sm p-3 sm:p-6 flex flex-col">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-100 flex-1 flex flex-col overflow-hidden max-w-6xl w-full mx-auto">
+            <div className="px-5 py-3.5 flex items-center justify-between gap-3 border-b border-slate-100 shrink-0">
+              <div className="min-w-0">
+                <h3 className="font-extrabold text-sm sm:text-base text-[#0b1a30] flex items-center gap-2 truncate">
+                  <MapPin className="w-4 h-4 text-blue-600 shrink-0" />
+                  <span className="truncate">{name} — Map View</span>
+                </h3>
+                <p className="text-[11px] text-slate-500 font-medium truncate">
+                  {area} · {hasExactPin ? 'Exact pin set by host' : 'Approximate pin'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsLocationMapExpanded(false)}
+                className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold shrink-0 transition-colors cursor-pointer"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="relative flex-1 min-h-[60vh] bg-[#eef2f6]">
+              <PropertyMap properties={[propToUse]} selectedId={propToUse.id} compact />
+            </div>
+
+            <div className="px-5 py-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-2 shrink-0">
+              <span className="text-[11px] text-slate-500 font-semibold truncate">
+                📍 {area} · {pinCoords.lat.toFixed(5)}, {pinCoords.lng.toFixed(5)}
+              </span>
+              <div className="flex items-center gap-2">
+                {isOwner && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsLocationMapExpanded(false);
+                      setIsLocationEditorOpen(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-950 border border-amber-200 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Edit Pin</span>
+                  </button>
+                )}
+                <a
+                  href={directionsUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-2 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <Navigation className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Get Directions</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Landlord: re-pin the exact location from the pad profile */}
+      {isOwner && (
+        <PadEditorModal
+          isOpen={isLocationEditorOpen}
+          mode="edit"
+          property={propToUse}
+          user={user}
+          focusLocation
+          onSave={(saved) => {
+            const next = saved || propToUse;
+            setCurrentProp(next);
+            onUpdateProperty?.(propToUse.id, next);
+          }}
+          onClose={() => setIsLocationEditorOpen(false)}
         />
       )}
 

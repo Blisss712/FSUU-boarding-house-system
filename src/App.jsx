@@ -60,6 +60,8 @@ export default function App() {
   const [selectedCampus, setSelectedCampus] = useState('fsuu-main');
   const [selectedZone, setSelectedZone] = useState('All Zones');
   const [maxBudget, setMaxBudget] = useState(8000);
+  const [selectedRoomType, setSelectedRoomType] = useState('All');
+  const [genderFilter, setGenderFilter] = useState('All');
   const [isFilterModalOpen, setIsFilterModalOpen] = useState(false);
 
   // Sorting
@@ -353,6 +355,22 @@ export default function App() {
         return false;
       }
 
+      // Room Type Filter
+      if (selectedRoomType && selectedRoomType !== 'All') {
+        const rt = (p.roomType || '').toLowerCase();
+        if (selectedRoomType === 'Solo Room' && !(rt.includes('solo') || rt.includes('private'))) return false;
+        else if (selectedRoomType === 'Bedspace' && !rt.includes('bedspace')) return false;
+        else if (selectedRoomType !== 'Solo Room' && selectedRoomType !== 'Bedspace' && !rt.includes(selectedRoomType.toLowerCase())) return false;
+      }
+
+      // Gender Filter
+      if (genderFilter && genderFilter !== 'All') {
+        const g = (p.gender || '').toLowerCase();
+        if (genderFilter === 'Female Only' && !(g.includes('female') && !g.includes('male') && !g.includes('co-ed'))) return false;
+        else if (genderFilter === 'Male Only' && !(g.includes('male') && !g.includes('female') && !g.includes('co-ed'))) return false;
+        else if (genderFilter !== 'Female Only' && genderFilter !== 'Male Only' && !g.includes(genderFilter.toLowerCase())) return false;
+      }
+
       // Budget (8000 = no max limit / ₱8,000+)
       if (maxBudget < 8000 && p.price > maxBudget) return false;
 
@@ -440,6 +458,8 @@ export default function App() {
     searchQuery,
     selectedCampus,
     selectedZone,
+    selectedRoomType,
+    genderFilter,
     maxBudget,
     rainOrShineOnly,
     walkOnly,
@@ -469,6 +489,8 @@ export default function App() {
     if (fastWifiOnly || minWifiSpeed > 0) count++;
     if (selectedAmenities.length > 0) count++;
     if (selectedZone !== 'All Zones') count++;
+    if (selectedRoomType && selectedRoomType !== 'All') count++;
+    if (genderFilter && genderFilter !== 'All') count++;
     if (maxBudget < 8000) count++;
     return count;
   }, [
@@ -487,6 +509,8 @@ export default function App() {
     minWifiSpeed,
     selectedAmenities,
     selectedZone,
+    selectedRoomType,
+    genderFilter,
     maxBudget
   ]);
 
@@ -550,6 +574,8 @@ export default function App() {
     setFastWifiOnly(false);
     setSelectedCampus('fsuu-main');
     setSelectedZone('All Zones');
+    setSelectedRoomType('All');
+    setGenderFilter('All');
     setSelectedAmenities([]);
     setMaxBudget(8000);
     setSearchQuery('');
@@ -750,7 +776,7 @@ export default function App() {
             <div className="flex flex-col lg:flex-row gap-6 lg:gap-8 items-start">
               
               {/* LEFT COLUMN: LISTINGS STREAM (58% width on desktop) */}
-              <div className="w-full lg:w-[58%] xl:w-[60%] space-y-4 pb-28 lg:pb-12">
+              <div className="w-full lg:w-[58%] xl:w-[60%] space-y-4 pb-28">
                 
                 {/* 100% In-Person Inspected Rosette Banner with Integrated Audit Filters */}
                 <VerificationBanner
@@ -907,21 +933,24 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile Bottom Navigation (< 1024px) - Available on all tab views */}
+      {/* Bottom Navigation - Available on every screen size */}
       {!selectedProperty && !viewingLandlord && (
-        <div className="lg:hidden">
-          <BottomNav
-            activeTab={activeTab}
-            setActiveTab={(tab) => {
-              setActiveTab(tab);
-              setMobileFeedMode('list');
-            }}
-            onOpenMap={() => setMobileFeedMode('map')}
-            savedCount={savedPropertyIds.length}
-            user={user}
-            myListingsCount={myListings.length}
-          />
-        </div>
+        <BottomNav
+          activeTab={activeTab}
+          setActiveTab={(tab) => {
+            setActiveTab(tab);
+            setMobileFeedMode('list');
+          }}
+          onOpenMap={() => setMobileFeedMode('map')}
+          savedCount={savedPropertyIds.length}
+          user={user}
+          myListingsCount={myListings.length}
+          onOpenMessages={() => {
+            setChatProperty({ id: 'all' });
+            handleMarkAllRead();
+          }}
+          unreadMessagesCount={notifications.filter(n => !n.read).length}
+        />
       )}
 
       {/* ======================================================== */}
@@ -934,6 +963,10 @@ export default function App() {
           zones={availableZones}
           maxBudget={maxBudget}
           setMaxBudget={setMaxBudget}
+          selectedRoomType={selectedRoomType}
+          setSelectedRoomType={setSelectedRoomType}
+          genderFilter={genderFilter}
+          setGenderFilter={setGenderFilter}
           rainOrShineOnly={rainOrShineOnly}
           setRainOrShineOnly={setRainOrShineOnly}
           maxWalkMinutes={maxWalkMinutes}

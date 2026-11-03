@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   X, 
   Building2, 
@@ -10,13 +10,17 @@ import {
   ShieldCheck, 
   Wifi, 
   Zap, 
-  Droplets, 
-  Footprints, 
+  Droplets,  Footprints,
+  Bus,
   AlertCircle,
   Clock
 } from 'lucide-react';
 import { api } from '../services/api';
 import CurfewApprovalModal from './CurfewApprovalModal';
+import { LocationPickerMap } from './PropertyMap';
+import { padHasCurfew } from '../utils/curfew';
+import { estimateCommuteMinutes, formatDistance } from '../utils/distance';
+import { CAMPUS } from '../lib/mapConfig';
 
 const PRESET_IMAGES = [
   { label: 'Clean Solo Room with Study Desk', url: 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=600&q=80' },
@@ -46,16 +50,17 @@ export default function PadEditorModal({
   user,
   onSave,
   onDelete,
-  onClose
+  onClose,
+  focusLocation = false
 }) {
   const isEdit = mode === 'edit' && Boolean(property);
+  const locationSectionRef = useRef(null);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
   // Form states
   const [name, setName] = useState('');
-  const [zone, setZone] = useState('');
   const [area, setArea] = useState('');
   const [roomType, setRoomType] = useState('Solo Pad / Private Room');
   const [gender, setGender] = useState('Co-ed Boarding House');
@@ -66,6 +71,12 @@ export default function PadEditorModal({
   const [minContract, setMinContract] = useState('');
   const [walkingMinutes, setWalkingMinutes] = useState('');
   const [distanceMeters, setDistanceMeters] = useState('');
+  // What the student feed advertises: walking minutes or commute minutes.
+  const [feedMode, setFeedMode] = useState('walk');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationError, setLocationError] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [wifiSpeed, setWifiSpeed] = useState('');
   const [wifiProvider, setWifiProvider] = useState('None (No Wi-Fi Provided)');
@@ -75,13 +86,13 @@ export default function PadEditorModal({
   const [selectedAmenities, setSelectedAmenities] = useState([]);
   const [customAmenitiesText, setCustomAmenitiesText] = useState('');
   const [curfewRule, setCurfewRule] = useState('');
+  const [hasCurfew, setHasCurfew] = useState(true);
   const [isCurfewApprovalOpen, setIsCurfewApprovalOpen] = useState(false);
 
   // Populate fields on edit mode
   useEffect(() => {
     if (isEdit && property) {
       setName(property.name || '');
-      setZone(property.zone || '');
       setArea(property.area || '');
       setRoomType(property.roomType || 'Solo Pad / Private Room');
       setGender(property.gender || 'Co-ed Boarding House');
@@ -95,6 +106,15 @@ export default function PadEditorModal({
       if (walk !== undefined) setWalkingMinutes(walk);
       const meters = property.gateProximities?.mainSFGate?.distanceMeters;
       if (meters !== undefined) setDistanceMeters(meters);
+      setFeedMode(property.gateProximities?.mainSFGate?.feedMode === 'commute' ? 'commute' : 'walk');
+
+      if (property.latitude != null && property.longitude != null) {
+        setLatitude(Number(property.latitude));
+        setLongitude(Number(property.longitude));
+      } else {
+        setLatitude('');
+        setLongitude('');
+      }
 
       if (Array.isArray(property.images) && property.images.length > 0) {
         setImageUrl(property.images[0]);
@@ -121,28 +141,75 @@ export default function PadEditorModal({
         setSelectedAmenities(property.amenities.map(a => typeof a === 'string' ? a : a.name).filter(Boolean));
       }
 
-      if (Array.isArray(property.rules) && property.rules.length > 0) {
-        const first = property.rules[0];
-        setCurfewRule(typeof first === 'string' ? first : `${first.title || ''}: ${first.desc || ''}`);
+      setHasCurfew(padHasCurfew(property));
+
+      const rules = Array.isArray(property.rules) ? property.rules : [];
+      const noteEntry = rules.find((rule) => rule && (typeof rule === 'string'
+        ? !/^no curfew$/i.test(rule)
+        : rule.curfew !== false)) || rules[0];
+      if (noteEntry) {
+        setCurfewRule(typeof noteEntry === 'string' ? noteEntry : (noteEntry.desc || ''));
+      } else {
+        setCurfewRule('');
       }
     } else {
       // Blank new-listing values. Nothing is fabricated for the landlord.
       setName('');
-      setZone('');
       setArea('');
       setRoomType('Solo Pad / Private Room');
       setGender('Co-ed Boarding House');
       setPrice('');
       setAvailableCount(1);
       setImageUrl('');
+      setLatitude('');
+      setLongitude('');
+      setCurfewRule('');
+      setHasCurfew(true);
     }
   }, [isEdit, property, isOpen]);
+
+  // Jump straight to the pin picker when the editor is opened for location work.
+  useEffect(() => {
+    if (!isOpen || !focusLocation) return undefined;
+    const timer = setTimeout(() => {
+      locationSectionRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [isOpen, focusLocation]);
 
   if (!isOpen) return null;
 
   const toggleAmenity = (name) => {
     setSelectedAmenities(prev => 
       prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]
+    );
+  };
+
+  // One-tap pin: drop the landlord's exact spot from the device GPS.
+  const handleUseCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationError('This browser cannot read your device location. Tap the map instead.');
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationError('');
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(Number(position.coords.latitude.toFixed(6)));
+        setLongitude(Number(position.coords.longitude.toFixed(6)));
+        setIsLocating(false);
+      },
+      (err) => {
+        setLocationError(
+          err?.code === 1
+            ? 'Location permission was denied. Allow location access or tap the map to drop the pin.'
+            : 'Could not read your location right now. Tap the map to drop the pin instead.'
+        );
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
   };
 
@@ -197,11 +264,20 @@ export default function PadEditorModal({
     const isNoneWater = waterBadge.toLowerCase().includes('none') || waterBadge.toLowerCase().includes('direct tap');
     const isNonePower = powerBadge.toLowerCase().includes('none') || powerBadge.toLowerCase().includes('no backup') || powerBadge.toLowerCase().includes('no generator');
 
+    const walkMins = Number(walkingMinutes) || 0;
+    const gateMeters = Number(distanceMeters) || 0;
+    const commuteMins = estimateCommuteMinutes(gateMeters);
+    const feedDistanceText = feedMode === 'commute'
+      ? `${commuteMins} min ride`
+      : `${walkMins} min walk`;
+
     const padPayload = {
       name: name.trim(),
-      zone: zone.trim(),
+      // Zone/subdivision is no longer a separate question: the first segment of
+      // the typed address feeds the zone filters and the compact location line.
+      zone: area.trim().split(',')[0].trim() || (isEdit ? (property?.zone || '').trim() : ''),
       area: area.trim(),
-      shortLocation: `${zone.trim()} • ${walkingMinutes} min walk`,
+      shortLocation: `${area.trim().split(',')[0].trim() || (isEdit ? (property?.zone || '').trim() : '')} • ${feedDistanceText}`,
       roomType,
       gender,
       price: Number(price),
@@ -212,11 +288,17 @@ export default function PadEditorModal({
       advanceDeposit,
       minContract,
       images: imageUrl ? [imageUrl] : [],
+      latitude: latitude === '' ? null : Number(latitude),
+      longitude: longitude === '' ? null : Number(longitude),
       gateProximities: {
+        ...(property?.gateProximities || {}),
         mainSFGate: {
-          walkingMinutes: Number(walkingMinutes) || 0,
-          distanceMeters: Number(distanceMeters) || 0,
-          label: `${Number(walkingMinutes) || 0} min walk`
+          ...(property?.gateProximities?.mainSFGate || {}),
+          walkingMinutes: walkMins,
+          distanceMeters: gateMeters,
+          commuteMinutes: commuteMins,
+          feedMode,
+          label: feedDistanceText
         }
       },
       wifiAudit: {
@@ -249,9 +331,15 @@ export default function PadEditorModal({
         description: 'Host-declared backup power information. Pending independent audit.'
       },
       amenities: formattedAmenities,
-      rules: curfewRule.trim()
-        ? [{ title: 'Curfew & Gate Access', desc: curfewRule.trim() }]
-        : [],
+      rules: hasCurfew
+        ? (curfewRule.trim()
+            ? [{ title: 'Curfew & Gate Access', desc: curfewRule.trim(), curfew: true }]
+            : [])
+        : [{
+            title: 'No Curfew',
+            desc: curfewRule.trim() || '24/7 gate access — no curfew enforced.',
+            curfew: false
+          }],
       buildingCondition: property?.buildingCondition || {
         status: 'Pending audit',
         badge: 'Not yet audited',
@@ -368,42 +456,20 @@ export default function PadEditorModal({
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Zone / Subdivision
-                </label>
-                <select
-                  value={zone}
-                  onChange={(e) => setZone(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs focus:outline-none focus:border-blue-500"
-                  required
-                >
-                  <option value="">Select a zone / subdivision</option>
-                  <option value="Villa Guingona">Villa Guingona</option>
-                  <option value="San Francisco Street">San Francisco Street</option>
-                  <option value="Montilla Blvd">Montilla Blvd</option>
-                  <option value="JC Aquino">JC Aquino</option>
-                  <option value="Brgy. JP Rizal">Brgy. JP Rizal</option>
-                  <option value="Ampayon Campus">Ampayon Campus</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Room Configuration Type
-                </label>
-                <select
-                  value={roomType}
-                  onChange={(e) => setRoomType(e.target.value)}
-                  className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs focus:outline-none focus:border-blue-500"
-                >
-                  <option value="Solo Pad / Private Room">Solo Pad / Private Room</option>
-                  <option value="2-Bedspace Room">2-Bedspace Room</option>
-                  <option value="4-Bedspace Studio">4-Bedspace Studio</option>
-                  <option value="En-Suite Studio Pad">En-Suite Studio Pad</option>
-                </select>
-              </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Room Configuration Type
+              </label>
+              <select
+                value={roomType}
+                onChange={(e) => setRoomType(e.target.value)}
+                className="w-full px-3 py-2.5 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs focus:outline-none focus:border-blue-500"
+              >
+                <option value="Solo Pad / Private Room">Solo Pad / Private Room</option>
+                <option value="2-Bedspace Room">2-Bedspace Room</option>
+                <option value="4-Bedspace Studio">4-Bedspace Studio</option>
+                <option value="En-Suite Studio Pad">En-Suite Studio Pad</option>
+              </select>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -526,7 +592,7 @@ export default function PadEditorModal({
           </div>
 
           {/* Section 3: Campus Proximity */}
-          <div className="space-y-3 pt-2">
+          <div ref={locationSectionRef} className="space-y-3 pt-2 scroll-mt-2">
             <h4 className="font-extrabold text-xs text-[#0b1a30] uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
               <Footprints className="w-4 h-4 text-emerald-600" />
               <span>3. Distance to FSUU Campus</span>
@@ -562,6 +628,104 @@ export default function PadEditorModal({
                   required
                 />
               </div>
+            </div>
+
+            {/* Feed distance preference: walk vs commute (profile shows both) */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                Distance shown in the student feed *
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setFeedMode('walk')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    feedMode === 'walk'
+                      ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Footprints className="w-3.5 h-3.5" />
+                  <span>Walk minutes</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFeedMode('commute')}
+                  className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
+                    feedMode === 'commute'
+                      ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
+                      : 'bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <Bus className="w-3.5 h-3.5" />
+                  <span>Commute minutes</span>
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+                {feedMode === 'commute'
+                  ? `Feed shows “${estimateCommuteMinutes(Number(distanceMeters)) || 0} min ride” — estimated tricycle/jeepney trip plus waiting time.`
+                  : `Feed shows “${Number(walkingMinutes) || 0} min walk”.`}
+                {' '}The pad profile always lists both walk and commute time, and distances switch to kilometres (e.g. {formatDistance(Number(distanceMeters)) || '1.00 km'}) from 1 km up.
+              </p>
+            </div>
+
+            {/* Exact map pin */}
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-[11px] font-bold text-slate-600">
+                  Pin exact location on the map
+                </label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleUseCurrentLocation}
+                    disabled={isLocating}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <MapPin className="w-3 h-3 text-blue-600" />
+                    <span>{isLocating ? 'Locating...' : 'Use my current location'}</span>
+                  </button>
+                  {(latitude !== '' || longitude !== '') && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLatitude('');
+                        setLongitude('');
+                        setLocationError('');
+                      }}
+                      className="text-[10px] font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                    >
+                      Clear pin
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {locationError && (
+                <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-1.5 mb-1.5">
+                  {locationError}
+                </p>
+              )}
+
+              <div className="h-52 w-full rounded-2xl overflow-hidden border border-slate-200">
+                <LocationPickerMap
+                  value={
+                    latitude !== '' && longitude !== ''
+                      ? { lat: Number(latitude), lng: Number(longitude) }
+                      : null
+                  }
+                  onChange={({ lat, lng }) => {
+                    setLatitude(Number(lat.toFixed(6)));
+                    setLongitude(Number(lng.toFixed(6)));
+                  }}
+                />
+              </div>
+
+              <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
+                {latitude !== '' && longitude !== ''
+                  ? `Pinned at ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)} — drag the amber pin to fine-tune.`
+                  : `Tap the map to drop your pin near ${CAMPUS.lat.toFixed(4)}, ${CAMPUS.lng.toFixed(4)} (FSUU Main). Students will see this exact spot on the public map.`}
+              </p>
             </div>
           </div>
 
@@ -884,46 +1048,105 @@ export default function PadEditorModal({
             </div>
           </div>
 
-          {/* Section 7: House Rules */}
+          {/* Section 7: House Rules & Optional Curfew */}
           <div className="space-y-2 pt-2">
-            <div className="flex items-center justify-between">
+            <label className="block text-[11px] font-bold text-slate-700">
+              Gate Curfew Policy *
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => setHasCurfew(true)}
+                aria-pressed={hasCurfew}
+                className={`px-3 py-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                  hasCurfew
+                    ? 'bg-amber-50 border-amber-400 ring-2 ring-amber-300/50'
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-extrabold text-[11px] text-slate-800">
+                  <Clock className={`w-3.5 h-3.5 ${hasCurfew ? 'text-amber-600' : 'text-slate-400'}`} />
+                  <span>With curfew</span>
+                </span>
+                <span className="block text-[10.5px] text-slate-500 font-medium mt-0.5">
+                  Gate locks at night. Digital curfew passes are available.
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setHasCurfew(false)}
+                aria-pressed={!hasCurfew}
+                className={`px-3 py-2.5 rounded-xl border text-left transition-colors cursor-pointer ${
+                  !hasCurfew
+                    ? 'bg-emerald-50 border-emerald-400 ring-2 ring-emerald-300/50'
+                    : 'bg-slate-50 border-slate-200 hover:bg-slate-100'
+                }`}
+              >
+                <span className="flex items-center gap-1.5 font-extrabold text-[11px] text-slate-800">
+                  <Clock className={`w-3.5 h-3.5 ${!hasCurfew ? 'text-emerald-600' : 'text-slate-400'}`} />
+                  <span>No curfew</span>
+                </span>
+                <span className="block text-[10.5px] text-slate-500 font-medium mt-0.5">
+                  24/7 gate access. No curfew passes needed.
+                </span>
+              </button>
+            </div>
+
+            <div className="flex items-center justify-between pt-1">
               <label className="block text-[11px] font-bold text-slate-700">
-                Curfew & House Rules Note
+                {hasCurfew ? 'Curfew & House Rules Note' : 'House Rules Note'}
               </label>
-              <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                Gate Pass Supported
-              </span>
+              {hasCurfew && (
+                <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+                  Gate Pass Supported
+                </span>
+              )}
             </div>
             <textarea
               rows={2}
               value={curfewRule}
               onChange={(e) => setCurfewRule(e.target.value)}
               className="w-full p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-blue-500"
-              placeholder="e.g. Gate closes at 10:00 PM. Digital curfew slip accepted for clinical / lab duties."
+              placeholder={hasCurfew
+                ? 'e.g. Gate closes at 10:00 PM. Digital curfew slip accepted for clinical / lab duties.'
+                : 'e.g. No smoking indoors. Quiet hours after 11:00 PM. Gate is open 24/7.'}
             />
 
-            {/* Landlord Curfew Exemption Pass Manager Div */}
-            <div className="p-3 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
-              <div className="flex items-start gap-2">
-                <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+            {hasCurfew ? (
+              /* Landlord Curfew Exemption Pass Manager Div */
+              <div className="p-3 rounded-2xl bg-amber-50/90 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
+                <div className="flex items-start gap-2">
+                  <Clock className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-extrabold text-amber-950 block">Digital Curfew Exemption Passes</span>
+                    <span className="text-[11px] text-amber-800">
+                      Students submit digital gate passes for hospital shifts. You can verify and approve them directly from your landlord hub.
+                    </span>
+                  </div>
+                </div>
+                {property?.id && (
+                  <button
+                    type="button"
+                    onClick={() => setIsCurfewApprovalOpen(true)}
+                    className="px-3.5 py-1.5 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white text-[11px] font-bold shrink-0 transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
+                  >
+                    <Clock className="w-3 h-3 text-amber-400" />
+                    <span>Review Passes</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-emerald-50/90 border border-emerald-200/90 flex items-start gap-2 text-xs">
+                <Clock className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
                 <div>
-                  <span className="font-extrabold text-amber-950 block">Digital Curfew Exemption Passes</span>
-                  <span className="text-[11px] text-amber-800">
-                    Students submit digital gate passes for hospital shifts. You can verify and approve them directly from your landlord hub.
+                  <span className="font-extrabold text-emerald-950 block">No curfew — curfew passes are switched off</span>
+                  <span className="text-[11px] text-emerald-800">
+                    This pad has 24/7 gate access, so boarders will not see the digital curfew pass feature.
                   </span>
                 </div>
               </div>
-              {property?.id && (
-                <button
-                  type="button"
-                  onClick={() => setIsCurfewApprovalOpen(true)}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white text-[11px] font-bold shrink-0 transition-colors cursor-pointer flex items-center justify-center gap-1 shadow-2xs"
-                >
-                  <Clock className="w-3 h-3 text-amber-400" />
-                  <span>Review Passes</span>
-                </button>
-              )}
-            </div>
+            )}
           </div>
 
           {/* Action Bar */}

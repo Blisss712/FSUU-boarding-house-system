@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, SlidersHorizontal, Bell, Bookmark, MapPin, Building2, LogOut, LogIn, UserPlus, MessageSquare, ShieldCheck, X } from 'lucide-react';
+import { Search, SlidersHorizontal, Bell, MapPin, Building2, LogOut, LogIn, UserPlus, X } from 'lucide-react';
 import NotificationsPanel from './NotificationsPanel';
 import SearchRecommendationsDropdown from './SearchRecommendationsDropdown';
 
@@ -8,12 +8,8 @@ export default function Header({
   setSearchQuery,
   openFilterModal,
   activeFilterCount,
-  savedCount,
-  myListingsCount = 0,
-  activeTab,
   setActiveTab,
   onOpenMessages,
-  unreadMessagesCount = 0,
   notifications = [],
   onMarkAllRead,
   // Auth props
@@ -163,60 +159,6 @@ export default function Header({
 
         {/* Right: Nav + Auth */}
         <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-          {/* Desktop Nav Links */}
-          <div className="hidden lg:flex items-center gap-1 border-r border-slate-200 pr-3">
-            <button
-              onClick={() => setActiveTab('explore')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                activeTab === 'explore' ? 'bg-blue-50 text-blue-900 font-extrabold' : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-              }`}
-            >
-              Explore
-            </button>
-            {(user?.role === 'admin' || user?.isAdmin) ? (
-              <button
-                onClick={() => setActiveTab('audits')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 ${
-                  activeTab === 'audits'
-                    ? 'bg-purple-100 text-purple-900 font-extrabold shadow-2xs'
-                    : 'text-purple-700 hover:text-purple-900 hover:bg-purple-50'
-                }`}
-              >
-                <ShieldCheck className="w-3.5 h-3.5 text-purple-600" />
-                <span>Urios Audit Portal</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => setActiveTab(user?.role === 'landlord' ? 'listings' : 'myroom')}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-colors ${
-                  (user?.role === 'landlord' ? activeTab === 'listings' : activeTab === 'myroom')
-                    ? 'bg-blue-50 text-blue-900 font-extrabold'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
-                }`}
-              >
-                {user?.role === 'landlord' ? `My Listings${myListingsCount > 0 ? ` (${myListingsCount})` : ''}` : 'My Tenancy'}
-              </button>
-            )}
-          </div>
-
-          {/* Messages & Inquiries — Available for all students, boarders, and landlords */}
-          {onOpenMessages && (
-            <button
-              onClick={onOpenMessages}
-              className="px-2.5 py-1.5 text-xs font-bold rounded-xl bg-blue-50 text-blue-900 border border-blue-200 hover:bg-blue-100 transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs relative"
-              title={user?.role === 'landlord' ? "Student Inquiries & Chats" : "Messages with Landlords"}
-            >
-              <MessageSquare className="w-3.5 h-3.5 text-blue-700" />
-              <span className="hidden sm:inline">
-                {user?.role === 'landlord' ? 'Inquiries' : 'Messages'}
-              </span>
-              <span className="sm:hidden">Chat</span>
-              {unreadMessagesCount > 0 && (
-                <span className="w-2 h-2 rounded-full bg-emerald-500 ring-2 ring-white"></span>
-              )}
-            </button>
-          )}
-
           {/* Mobile Filter Button */}
           <button
             onClick={openFilterModal}
@@ -257,24 +199,6 @@ export default function Header({
               />
             )}
           </div>
-
-          {/* Student/Guest: Saved bookmarks (Landlords use the primary My Listings nav tab) */}
-          {user?.role !== 'landlord' && (
-            <button
-              onClick={() => setActiveTab('saved')}
-              className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors relative ${
-                activeTab === 'saved' ? 'bg-blue-50 text-blue-900 ring-1 ring-blue-200' : 'text-slate-600 hover:bg-slate-100'
-              }`}
-              title="Saved Pads"
-            >
-              <Bookmark className={`w-4 h-4 ${activeTab === 'saved' ? 'text-blue-900 fill-blue-900' : 'text-slate-700'}`} />
-              {savedCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-amber-500 text-white font-bold text-[9px] flex items-center justify-center ring-2 ring-white">
-                  {savedCount}
-                </span>
-              )}
-            </button>
-          )}
 
           {/* ── Auth zone ──────────────────────────────────────────── */}
           {user ? (

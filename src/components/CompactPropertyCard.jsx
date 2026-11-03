@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Heart, Star, ChevronRight, Footprints, BadgeCheck, Check } from 'lucide-react';
+import { Heart, Star, ChevronRight, Footprints, Bus, BadgeCheck, Check } from 'lucide-react';
 import StudentChecklistTags from './StudentChecklistTags';
 import LandlordProfileSheet from './LandlordProfileSheet';
+import { getGateDistance } from '../utils/distance';
 
 export default function CompactPropertyCard({
   property,
@@ -21,11 +22,11 @@ export default function CompactPropertyCard({
     priceSubtext,
     rating,
     images,
-    gateProximities,
     landlord
   } = property;
 
-  const walkMins = gateProximities?.mainSFGate?.walkingMinutes ?? null;
+  // Landlord's choice: walking minutes or commute minutes in the feed.
+  const gateDistance = getGateDistance(property);
   const [showLandlord, setShowLandlord] = useState(false);
 
   return (
@@ -62,13 +63,18 @@ export default function CompactPropertyCard({
               </button>
             )}
 
-            {/* Walk time */}
-            {walkMins !== null && (
+            {/* Walk / commute time (whichever the landlord advertises) */}
+            {gateDistance && (
               <div className={`absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 ${
-                walkMins <= 5 ? 'bg-emerald-500 text-white' : walkMins <= 10 ? 'bg-amber-500 text-white' : 'bg-black/70 text-white'
+                gateDistance.walkMinutes <= 5 ? 'bg-emerald-500 text-white' : gateDistance.walkMinutes <= 10 ? 'bg-amber-500 text-white' : 'bg-black/70 text-white'
               }`}>
-                <Footprints className="w-2.5 h-2.5" />
-                <span>{walkMins}m</span>
+                {gateDistance.isRide
+                  ? <Bus className="w-2.5 h-2.5" />
+                  : <Footprints className="w-2.5 h-2.5" />}
+                <span>{gateDistance.minutes} min</span>
+                {gateDistance.meters >= 1000 && (
+                  <span className="opacity-75">· {gateDistance.distanceLabel}</span>
+                )}
               </div>
             )}
           </div>

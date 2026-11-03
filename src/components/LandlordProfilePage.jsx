@@ -3,6 +3,7 @@ import {
   ArrowLeft, Phone, MessageCircle, BadgeCheck, Home, Star, MapPin,
   ShieldCheck, Clock, Award, CheckCircle2
 } from 'lucide-react';
+import { getGateDistance } from '../utils/distance';
 
 /**
  * LandlordProfilePage
@@ -238,7 +239,7 @@ export default function LandlordProfilePage({
 
             <div className="space-y-3">
               {theirPads.map(pad => {
-                const walkMins = pad.gateProximities?.mainSFGate?.walkingMinutes;
+                const gateDistance = getGateDistance(pad);
                 const isActive = pad.id === currentProperty?.id;
 
                 return (
@@ -286,11 +287,11 @@ export default function LandlordProfilePage({
                           ₱{pad.price.toLocaleString()}
                           <span className="text-[10px] text-slate-400 font-normal ml-0.5">/mo</span>
                         </span>
-                        {walkMins != null && (
+                        {gateDistance && (
                           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                            walkMins <= 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                            gateDistance.walkMinutes <= 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                           }`}>
-                            {walkMins} min walk
+                            {gateDistance.minutesLabel}
                           </span>
                         )}
                         {pad.rating && (

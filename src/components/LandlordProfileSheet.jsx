@@ -1,5 +1,6 @@
 import React from 'react';
 import { X, Phone, MessageCircle, BadgeCheck, Home, Star, MapPin, ArrowRight } from 'lucide-react';
+import { getGateDistance } from '../utils/distance';
 
 /**
  * LandlordProfileSheet
@@ -129,7 +130,7 @@ export default function LandlordProfileSheet({
               </p>
               <div className="space-y-2">
                 {theirPads.map(pad => {
-                  const walkMins = pad.gateProximities?.mainSFGate?.walkingMinutes;
+                  const gateDistance = getGateDistance(pad);
                   const isActive = pad.id === currentProperty?.id;
                   return (
                     <button
@@ -153,11 +154,11 @@ export default function LandlordProfileSheet({
                         </div>
                         <div className="flex items-center gap-2 mt-1">
                           <span className="text-[12px] font-extrabold text-[#0b1a30]">₱{pad.price.toLocaleString()}</span>
-                          {walkMins != null && (
+                          {gateDistance && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                              walkMins <= 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
+                              gateDistance.walkMinutes <= 5 ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-600'
                             }`}>
-                              {walkMins} min walk
+                              {gateDistance.minutesLabel}
                             </span>
                           )}
                           <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${

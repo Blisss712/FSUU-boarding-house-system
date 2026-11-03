@@ -52,6 +52,8 @@ CREATE TABLE IF NOT EXISTS properties (
   "trikeFare" TEXT DEFAULT '₱15',
   badges JSONB NOT NULL DEFAULT '{}'::jsonb,
   "mapCoordinates" JSONB NOT NULL DEFAULT '{"x":50,"y":50}'::jsonb,
+  latitude NUMERIC(9, 6),
+  longitude NUMERIC(9, 6),
   "buildingCondition" JSONB NOT NULL DEFAULT '{}'::jsonb,
   "floodRating" JSONB NOT NULL DEFAULT '{}'::jsonb,
   "waterSystem" JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -65,6 +67,11 @@ CREATE TABLE IF NOT EXISTS properties (
   "createdAt" TIMESTAMPTZ DEFAULT NOW(),
   "updatedAt" TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Real map coordinates (idempotent, so older databases pick them up too).
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS latitude  NUMERIC(9, 6);
+ALTER TABLE properties ADD COLUMN IF NOT EXISTS longitude NUMERIC(9, 6);
+CREATE INDEX IF NOT EXISTS properties_latitude_longitude_idx ON properties (latitude, longitude);
 
 -- 4. USERS / PROFILES TABLE (Linked with Supabase Auth)
 CREATE TABLE IF NOT EXISTS users (

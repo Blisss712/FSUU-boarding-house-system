@@ -4,11 +4,13 @@ import {
   ArrowRight,
   Star,
   Footprints,
+  Bus,
   BadgeCheck,
   Check
 } from 'lucide-react';
 import StudentChecklistTags from './StudentChecklistTags';
 import LandlordProfileSheet from './LandlordProfileSheet';
+import { getGateDistance } from '../utils/distance';
 
 export default function PropertyCard({
   property,
@@ -30,11 +32,11 @@ export default function PropertyCard({
     priceSubtext,
     rating,
     landlord,
-    images,
-    gateProximities
+    images
   } = property;
 
-  const walkMins = gateProximities?.mainSFGate?.walkingMinutes ?? null;
+  // Landlord's choice: walking minutes or commute minutes in the feed.
+  const gateDistance = getGateDistance(property);
   const [showLandlord, setShowLandlord] = useState(false);
 
   return (
@@ -96,16 +98,21 @@ export default function PropertyCard({
               <span className="text-[11px] text-blue-200 font-medium">{priceSubtext}</span>
             </div>
 
-            {walkMins !== null && (
+            {gateDistance && (
               <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl backdrop-blur-sm text-[11px] font-bold shadow-sm ${
-                walkMins <= 5
+                gateDistance.walkMinutes <= 5
                   ? 'bg-emerald-500 text-white'
-                  : walkMins <= 10
+                  : gateDistance.walkMinutes <= 10
                   ? 'bg-amber-500 text-white'
                   : 'bg-white/85 text-slate-800'
               }`}>
-                <Footprints className="w-3.5 h-3.5" />
-                <span>{walkMins} min</span>
+                {gateDistance.isRide
+                  ? <Bus className="w-3.5 h-3.5" />
+                  : <Footprints className="w-3.5 h-3.5" />}
+                <span>{gateDistance.minutesLabel}</span>
+                {gateDistance.distanceLabel && (
+                  <span className="opacity-75">· {gateDistance.distanceLabel}</span>
+                )}
               </div>
             )}
           </div>

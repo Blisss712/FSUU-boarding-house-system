@@ -24,6 +24,10 @@ export default function HierarchicalFilterModal({
   zones: propZones,
   maxBudget,
   setMaxBudget,
+  selectedRoomType = 'All',
+  setSelectedRoomType,
+  genderFilter = 'All',
+  setGenderFilter,
   // 6 Checklist Filters
   rainOrShineOnly = false,
   setRainOrShineOnly,
@@ -124,6 +128,8 @@ export default function HierarchicalFilterModal({
     if (setMinDistanceMeters) setMinDistanceMeters(0);
     if (setMinWalkMinutes) setMinWalkMinutes(0);
     if (setSelectedAmenities) setSelectedAmenities([]);
+    if (setSelectedRoomType) setSelectedRoomType('All');
+    if (setGenderFilter) setGenderFilter('All');
     onResetFilters();
   };
 
@@ -651,6 +657,49 @@ export default function HierarchicalFilterModal({
                 {zone}
               </button>
             ))}
+          </div>
+        </div>
+
+        {/* Room Type & Gender Policy */}
+        <div className="space-y-2.5 pt-2 border-t border-slate-100">
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#0b1a30]">Room Accommodation Type</label>
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              {['All', 'Solo Room', 'Bedspace'].map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setSelectedRoomType && setSelectedRoomType(t)}
+                  className={`py-2 px-2 rounded-xl font-bold border transition-all text-center ${
+                    selectedRoomType === t
+                      ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold text-[#0b1a30]">Tenant / Gender Policy</label>
+            <div className="grid grid-cols-3 gap-1.5 text-xs">
+              {['All', 'Female Only', 'Male Only'].map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => setGenderFilter && setGenderFilter(g)}
+                  className={`py-2 px-2 rounded-xl font-bold border transition-all text-center ${
+                    genderFilter === g
+                      ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  {g}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
