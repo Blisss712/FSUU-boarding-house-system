@@ -43,19 +43,6 @@ export default function GateFilterBar({
           <span>JC Aquino Gate</span>
         </button>
 
-        {/* Morelos Campus Gate */}
-        <button
-          onClick={() => setSelectedGate(selectedGate === 'morelos-main' ? 'all' : 'morelos-main')}
-          className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold transition-all border ${
-            selectedGate === 'morelos-main'
-              ? 'bg-[#0b1a30] text-white border-[#0b1a30] shadow-xs'
-              : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-          }`}
-        >
-          <span className="text-sm leading-none">🎓</span>
-          <span>Morelos Campus</span>
-        </button>
-
         {/* Flood-Free Path */}
         <button
           onClick={() => setFloodFreeOnly(!floodFreeOnly)}
@@ -96,12 +83,25 @@ export default function GateFilterBar({
         </button>
       </div>
 
-      {/* Advanced Filter Quick Pill */}
-      {selectedZone !== 'All Zones' && (
-        <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-900 border border-blue-200 text-[11px] font-bold whitespace-nowrap">
-          📍 {selectedZone}
-        </span>
-      )}
+      {/* Advanced Filter Quick Pill & Trigger */}
+      <div className="flex items-center gap-1.5 shrink-0">
+        {selectedZone !== 'All Zones' && (
+          <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-900 border border-blue-200 text-[11px] font-bold whitespace-nowrap">
+            📍 {selectedZone}
+          </span>
+        )}
+        {onOpenAdvancedFilter && (
+          <button
+            type="button"
+            onClick={onOpenAdvancedFilter}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-all cursor-pointer whitespace-nowrap"
+            title="Open Advanced Filters"
+          >
+            <SlidersHorizontal className="w-3 h-3 text-slate-600" />
+            <span className="hidden sm:inline">Filters</span>
+          </button>
+        )}
+      </div>
     </div>
   );
 }

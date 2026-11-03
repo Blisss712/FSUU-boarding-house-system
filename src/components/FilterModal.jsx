@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, SlidersHorizontal, ShieldCheck, Zap, Droplets, Wifi, RotateCcw } from 'lucide-react';
+import { X, SlidersHorizontal, ShieldCheck, Zap, Droplets, RotateCcw, Check, Sparkles } from 'lucide-react';
 
 export default function FilterModal({
   maxBudget,
@@ -14,11 +14,17 @@ export default function FilterModal({
   setPowerBackupOnly,
   boosterPumpOnly,
   setBoosterPumpOnly,
-  minWifiSpeed,
-  setMinWifiSpeed,
+  selectedAmenities = [],
+  setSelectedAmenities,
   onResetFilters,
   onClose
 }) {
+  const toggleAmenity = (name) => {
+    if (!setSelectedAmenities) return;
+    setSelectedAmenities(prev =>
+      prev.includes(name) ? prev.filter(x => x !== name) : [...prev, name]
+    );
+  };
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
       <div className="bg-white rounded-3xl max-w-md w-full p-5 shadow-2xl border border-slate-100 my-auto animate-in fade-in zoom-in-95 duration-200 space-y-4">
@@ -45,20 +51,22 @@ export default function FilterModal({
         <div className="space-y-1.5">
           <div className="flex justify-between items-center text-xs font-bold text-slate-800">
             <span>Max Monthly Budget</span>
-            <span className="text-base text-blue-600 font-black">₱{maxBudget.toLocaleString()}</span>
+            <span className="text-base text-blue-600 font-black">
+              {maxBudget >= 8000 ? '₱8,000+ (No Limit)' : `₱${Number(maxBudget).toLocaleString()}/mo`}
+            </span>
           </div>
           <input
             type="range"
-            min="1500"
-            max="7000"
-            step="200"
-            value={maxBudget}
-            onChange={(e) => setMaxBudget(parseInt(e.target.value))}
-            className="w-full accent-blue-600 cursor-pointer"
+            min="1000"
+            max="8000"
+            step="100"
+            value={Math.min(Math.max(Number(maxBudget) || 1000, 1000), 8000)}
+            onChange={(e) => setMaxBudget(parseInt(e.target.value, 10))}
+            className="w-full accent-blue-600 cursor-pointer h-2 bg-slate-200 rounded-lg appearance-none"
           />
           <div className="flex justify-between text-[10px] text-slate-400 font-semibold">
-            <span>₱1,500 (Bedspace)</span>
-            <span>₱7,000+ (Luxury Studio)</span>
+            <span>₱1,000 (Bedspace)</span>
+            <span>₱8,000+ (Luxury Studio)</span>
           </div>
         </div>
 
@@ -146,6 +154,49 @@ export default function FilterModal({
               className="accent-blue-600 w-4 h-4 rounded"
             />
           </label>
+        </div>
+
+        {/* Included Amenities Must-Haves */}
+        <div className="space-y-2 pt-2 border-t border-slate-100">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+              <span>Required Room Amenities:</span>
+            </label>
+            {selectedAmenities.length > 0 && (
+              <span className="text-[10px] font-bold text-blue-900 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                {selectedAmenities.length} selected
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 text-xs">
+            {[
+              'Study Table & Chair',
+              'Free Purified Drinking Water',
+              'Inverter Aircon',
+              '24/7 CCTV Security',
+              'Submetered Electric (₱14/kWh)',
+              'Private En-Suite Bathroom'
+            ].map((am) => {
+              const isSelected = selectedAmenities.includes(am);
+              return (
+                <button
+                  key={am}
+                  type="button"
+                  onClick={() => toggleAmenity(am)}
+                  className={`p-2 rounded-xl text-left font-bold border transition-all flex items-center justify-between gap-1 ${
+                    isSelected
+                      ? 'bg-[#0f244a] text-white border-[#0f244a] shadow-xs'
+                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                  }`}
+                >
+                  <span className="truncate">{am}</span>
+                  {isSelected && <Check className="w-3 h-3 text-amber-400 shrink-0" />}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Action Buttons */}

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { X, Share2, Copy, Check, ShieldCheck, Heart, Phone, MapPin, Eye, Lock } from 'lucide-react';
+import { X, Share2, Copy, Check, ShieldCheck, Eye, Lock } from 'lucide-react';
 
 export default function ParentShareModal({ property, onClose }) {
-  if (!property) return null;
-
   const [copied, setCopied] = useState(false);
+
+  if (!property) return null;
 
   const messengerSummary = `🏠 BALAY URIOS - STUDENT HOUSING SAFETY SUMMARY FOR PARENTS
 

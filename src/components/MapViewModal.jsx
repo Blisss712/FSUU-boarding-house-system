@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, MapPin, Footprints, ShieldCheck, Zap, Bike, ExternalLink, School } from 'lucide-react';
+import { X, MapPin, Footprints, ShieldCheck, ExternalLink, School } from 'lucide-react';
 
 export default function MapViewModal({ properties, onSelectProperty, onClose }) {
   const [selectedPropId, setSelectedPropId] = useState(properties[0]?.id);
@@ -55,25 +55,16 @@ export default function MapViewModal({ properties, onSelectProperty, onClose }) 
             </div>
           </div>
 
-          {/* FSUU Morelos Campus Landmark (Southwest) */}
-          <div className="absolute bottom-6 left-12 z-20">
-            <div className="p-2 rounded-xl bg-purple-900 text-white shadow-md border border-purple-400 flex items-center gap-1">
-              <School className="w-3.5 h-3.5 text-purple-200" />
-              <span className="text-[9px] font-bold">Morelos Campus</span>
-            </div>
-          </div>
-
-          {/* Property Pins */}
+          {/* Property Pins (5 Main Campus Pads) */}
           {properties.map((p, idx) => {
             const isSelected = p.id === selectedPropId;
-            // Pre-calculated relative layout offsets around campus
+            // Layout offsets around FSUU Main Campus
             const positions = [
-              { top: '35%', left: '26%' }, // Villa Guingona
-              { top: '42%', left: '50%' }, // San Ignacio
-              { top: '22%', left: '42%' }, // Montilla
-              { top: '60%', left: '40%' }, // Libertad
-              { top: '78%', left: '18%' }, // Morelos
-              { top: '28%', left: '18%' }  // R. Calo
+              { top: '35%', left: '26%' },
+              { top: '42%', left: '52%' },
+              { top: '24%', left: '44%' },
+              { top: '58%', left: '42%' },
+              { top: '28%', left: '18%' }
             ];
             const pos = positions[idx % positions.length];
 

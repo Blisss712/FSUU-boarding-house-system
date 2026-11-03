@@ -1,54 +1,24 @@
 import React, { useState } from 'react';
-import { School, MapPin, Footprints, ShieldCheck, Wifi, Star, ArrowRight, Layers, SlidersHorizontal, List } from 'lucide-react';
+import { School, ShieldCheck, ArrowRight, List } from 'lucide-react';
 
 export default function FullScreenMapView({
   properties,
   onSelectProperty,
   onSwitchToList,
-  selectedCampus,
-  setSelectedCampus,
   floodFreeOnly,
   setFloodFreeOnly
 }) {
-  const [selectedPinId, setSelectedPinId] = useState(properties[0]?.id || 'villa-guingona');
+  const [selectedPinId, setSelectedPinId] = useState(properties[0]?.id || '');
   const activeProperty = properties.find(p => p.id === selectedPinId) || properties[0];
 
   return (
     <div className="relative w-full h-[760px] bg-[#eef2f6] overflow-hidden flex flex-col select-none">
       {/* Top Floating Controls on Map */}
       <div className="absolute top-3 left-3 right-3 z-30 flex items-center justify-between gap-2">
-        {/* Campus Toggle Pills */}
-        <div className="flex items-center gap-1 bg-white/90 backdrop-blur-md p-1 rounded-2xl shadow-md border border-slate-200/80">
-          <button
-            onClick={() => setSelectedCampus('all')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              selectedCampus === 'all'
-                ? 'bg-[#0b1a30] text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            All Butuan
-          </button>
-          <button
-            onClick={() => setSelectedCampus('fsuu-main')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              selectedCampus === 'fsuu-main'
-                ? 'bg-[#0b1a30] text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            FSUU Main
-          </button>
-          <button
-            onClick={() => setSelectedCampus('fsuu-morelos')}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all ${
-              selectedCampus === 'fsuu-morelos'
-                ? 'bg-[#0b1a30] text-white shadow-xs'
-                : 'text-slate-700 hover:bg-slate-100'
-            }`}
-          >
-            Morelos
-          </button>
+        {/* Campus Header */}
+        <div className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-800">
+          <School className="w-4 h-4 text-blue-600" />
+          <span>FSUU Main Campus (SF & JC Gates)</span>
         </div>
 
         {/* Flood Layer Quick Switch */}
@@ -91,13 +61,6 @@ export default function FullScreenMapView({
           </div>
         </div>
 
-        {/* FSUU Morelos Campus Landmark */}
-        <div className="absolute bottom-[28%] left-[20%] -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none">
-          <div className="px-2.5 py-1.5 rounded-xl bg-purple-950 text-white shadow-md border border-purple-400 flex items-center gap-1">
-            <School className="w-3.5 h-3.5 text-purple-300" />
-            <span className="text-[9px] font-bold">FSUU Morelos</span>
-          </div>
-        </div>
 
         {/* Interactive Property Pins */}
         {properties.map((p) => {

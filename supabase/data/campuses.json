@@ -1,0 +1,8 @@
+[
+  {
+    "id": "fsuu-main",
+    "name": "FSUU Main Campus",
+    "gates": "[{\"id\":\"sf-gate\",\"name\":\"San Francisco St. Gate (Main Entrance)\",\"shortName\":\"SF Gate\"},{\"id\":\"jc-gate\",\"name\":\"J.C. Aquino Ave Gate (College Wing)\",\"shortName\":\"JC Aquino Gate\"}]",
+    "zones": "[\"Guingona Subdivision\",\"San Ignacio\",\"Montilla Boulevard\",\"R. Calo Extension\",\"Brgy. Bayanihan\"]"
+  }
+]

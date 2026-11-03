@@ -1,0 +1,44 @@
+[
+  {
+    "id": "electric-fan",
+    "name": "Electric Desk / Stand Fan",
+    "monthlyCost": 120,
+    "note": "Flat monthly landlord fee"
+  },
+  {
+    "id": "laptop",
+    "name": "Laptop / PC Workstation",
+    "monthlyCost": 150,
+    "note": "Charging & thesis usage"
+  },
+  {
+    "id": "rice-cooker",
+    "name": "Rice Cooker (Standard)",
+    "monthlyCost": 200,
+    "note": "In-room cooking appliance"
+  },
+  {
+    "id": "mini-fridge",
+    "name": "Personal Mini Refrigerator",
+    "monthlyCost": 400,
+    "note": "Continuous cooling appliance"
+  },
+  {
+    "id": "induction",
+    "name": "Single Induction Cooker",
+    "monthlyCost": 250,
+    "note": "For personal meal prep"
+  },
+  {
+    "id": "hair-dryer",
+    "name": "Hair Dryer / Straightener",
+    "monthlyCost": 100,
+    "note": "Occasional heating device"
+  },
+  {
+    "id": "electric-kettle",
+    "name": "Electric Kettle / Water Heater",
+    "monthlyCost": 150,
+    "note": "Instant noodles & coffee"
+  }
+]

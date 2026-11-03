@@ -1,14 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { X, Play, Pause, RotateCcw, Video, Compass, ShieldCheck, Sun, CheckCircle } from 'lucide-react';
+import { X, Play, Pause, RotateCcw, Compass, CheckCircle } from 'lucide-react';
 
 export default function WalkPovModal({ property, onClose }) {
-  if (!property) return null;
-
   const [isPlaying, setIsPlaying] = useState(true);
   const [seconds, setSeconds] = useState(0);
   const [playbackSpeed, setPlaybackSpeed] = useState(2); // 2x default for sped-up walk
 
   useEffect(() => {
+    if (!property) return;
     let interval = null;
     if (isPlaying) {
       interval = setInterval(() => {
@@ -22,13 +21,29 @@ export default function WalkPovModal({ property, onClose }) {
       }, 1000 / playbackSpeed);
     }
     return () => clearInterval(interval);
-  }, [isPlaying, playbackSpeed]);
+  }, [isPlaying, playbackSpeed, property]);
 
-  const currentStep = property.povRoute.steps.slice().reverse().find(step => {
-    const [min, sec] = step.time.split(':').map(Number);
+  if (!property) return null;
+
+  const defaultSteps = [
+    { time: '0:00', title: `${property.name || 'Boarding Pad'} Gate`, note: 'Depart from gate onto access street' },
+    { time: '0:30', title: 'Midpoint Walkway', note: 'Walking along well-lit paved walkway toward campus' },
+    { time: '0:55', title: 'FSUU Campus Entrance', note: 'Arriving at FSUU San Francisco campus gate' }
+  ];
+
+  const stepsList = Array.isArray(property.povRoute?.steps) && property.povRoute.steps.length > 0
+    ? property.povRoute.steps
+    : defaultSteps;
+
+  const currentStep = stepsList.slice().reverse().find(step => {
+    const [min = 0, sec = 0] = (step.time || '0:00').split(':').map(Number);
     const targetSeconds = min * 60 + sec;
     return seconds >= targetSeconds;
-  }) || property.povRoute.steps[0];
+  }) || stepsList[0];
+
+  const bgImage = (Array.isArray(property.images) && property.images[0])
+    ? property.images[0]
+    : 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=600&q=80';
 
   const progressPercent = (seconds / 60) * 100;
 
@@ -57,7 +72,7 @@ export default function WalkPovModal({ property, onClose }) {
           <div 
             className="absolute inset-0 bg-cover bg-center transition-all duration-700 filter brightness-90"
             style={{
-              backgroundImage: `url(${property.images[0]})`,
+              backgroundImage: `url(${bgImage})`,
               transform: `scale(${1 + (seconds / 120)}) translateY(-${(seconds / 60) * 12}px)`
             }}
           />
