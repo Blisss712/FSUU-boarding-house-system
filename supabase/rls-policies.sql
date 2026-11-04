@@ -65,6 +65,9 @@ $$;
 
 -- ------------------------------------------------------------
 -- Remove the old permissive policies (idempotent)
+-- The messaging tables are skipped on purpose: their policies belong to
+-- supabase/add-messaging.sql. Dropping them here left RLS enabled with no
+-- policy, which silently disabled every chat in the app.
 -- ------------------------------------------------------------
 DO $$
 DECLARE
@@ -74,6 +77,7 @@ BEGIN
     SELECT policyname, tablename
       FROM pg_policies
      WHERE schemaname = 'public'
+       AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats')
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
   END LOOP;

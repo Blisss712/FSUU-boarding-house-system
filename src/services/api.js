@@ -160,11 +160,19 @@ function isMissingColumnError(error) {
 
 // Messaging writes fail loudly when supabase/add-messaging.sql has not been
 // run yet; surface that installation step instead of a bare PostgREST error.
+// "permission denied"/RLS errors mean the messaging policies were dropped
+// (re-running the older full-setup.sql / rls-policies.sql used to do that).
 function messagingError(error, fallback = 'Messaging request failed.') {
   const message = error?.message || fallback;
   const needsMigration = /does not exist|schema cache|could not find the (table|function)/i.test(message);
+  const needsPolicies = /permission denied|row-level security|rls policy/i.test(message);
+
   return new ApiError(
-    needsMigration ? `${message} Run supabase/add-messaging.sql in Supabase first.` : message,
+    needsMigration
+      ? `${message} Run supabase/add-messaging.sql in Supabase first.`
+      : needsPolicies
+        ? `${message} Run supabase/add-messaging.sql in Supabase to restore the messaging policies.`
+        : message,
     500
   );
 }
@@ -979,7 +987,14 @@ export const api = {
       throw new ApiError(`Failed to publish pad: ${error.message}`, 500);
     }
 
-    return sanitizeRow(data || record);
+    const created = sanitizeRow(data || record);
+
+    // Creating a listing creates its dedicated pad group (the database trigger
+    // does this too). Asking again here keeps the landlord's inbox correct
+    // immediately, and repairs listings created before pad groups existed.
+    await this._refreshPadGroup(created?.id || id);
+
+    return created;
   },
 
   async updateProperty(id, propData) {
@@ -1649,6 +1664,10 @@ export const api = {
       console.warn('[approveTenantApplication - non-fatal receipt error]:', err.message);
     }
 
+    // The approved boarder joins their pad's group chat automatically (the
+    // tenancy trigger does this too; this keeps the landlord's inbox current).
+    await this._refreshPadGroup(row.propertyId);
+
     return {
       success: true,
       message: 'Application approved. The student is now an active tenant.',
@@ -1986,7 +2005,7 @@ export const api = {
     );
     const allMessages = messageRes.data || [];
 
-    return (conversationRes.data || [])
+    const conversations = (conversationRes.data || [])
       .map(conv => {
         const conversationMembers = members
           .filter(m => m.conversationId === conv.id)
@@ -2008,10 +2027,38 @@ export const api = {
           otherMembers: conversationMembers.filter(m => m.userId !== identity.id),
           lastMessage: conversationMessages[conversationMessages.length - 1] || null,
           unreadCount,
-          myRole: mine?.role || 'member'
+          myRole: mine?.role || 'member',
+          isPadGroup: Boolean(conv.propertyId)
         };
       })
       .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+
+    // Pad groups carry their listing id (conversations.propertyId). Decorate
+    // them with the listing so the inbox can label the pad even when the
+    // stored conversation title is missing. Purely cosmetic — never fatal.
+    const padIds = Array.from(new Set(conversations.map(conv => conv.propertyId).filter(Boolean)));
+
+    if (padIds.length > 0) {
+      try {
+        const { data: padRows } = await supabase
+          .from('properties')
+          .select('id, name, zone, area, shortLocation')
+          .in('id', padIds);
+
+        const padsById = new Map((padRows || []).map(row => [row.id, row]));
+
+        conversations.forEach(conv => {
+          if (!conv.propertyId) return;
+          const pad = padsById.get(conv.propertyId) || null;
+          conv.pad = pad;
+          if (!conv.title && pad?.name) conv.title = `${pad.name} · Pad Group`;
+        });
+      } catch (err) {
+        console.warn('[Supabase pad group labels warning]:', err.message);
+      }
+    }
+
+    return conversations;
   },
 
   /** Full message history for one conversation (RLS limits this to members). */
@@ -2121,6 +2168,55 @@ export const api = {
     });
 
     if (error) throw messagingError(error, 'Could not update the read marker.');
+  },
+
+  // ── Pad groups (one dedicated group chat per listing) ────────────────────
+  //
+  // The database owns this: creating a listing creates its pad group, adds the
+  // landlord, and adds every approved boarder (see supabase/add-messaging.sql
+  // -> pad_group_sync). These helpers only ask the database to reconcile the
+  // group, which makes the Messages tab self-healing for older listings.
+
+  /**
+   * Opens (and repairs) the pad group for a listing. Allowed for the pad's
+   * landlord, its boarders, and admins. Returns the conversation id.
+   */
+  async ensurePadGroup(propertyId) {
+    if (!propertyId) return null;
+
+    const { data, error } = await supabase.rpc('ensure_pad_group', {
+      p_property_id: propertyId
+    });
+
+    if (error) throw messagingError(error, 'Could not open the pad group.');
+    return data || null;
+  },
+
+  /**
+   * Forces a full membership re-sync of a pad group (landlord only).
+   * Use after approving a boarder or transferring a listing.
+   */
+  async syncPadGroup(propertyId) {
+    if (!propertyId) return null;
+
+    const { data, error } = await supabase.rpc('sync_pad_group', {
+      p_property_id: propertyId
+    });
+
+    if (error) throw messagingError(error, 'Could not sync the pad group.');
+    return data || null;
+  },
+
+  /** Fire-and-forget pad-group top-up. Never blocks the caller's real work. */
+  async _refreshPadGroup(propertyId) {
+    if (!propertyId) return null;
+
+    try {
+      return await this.ensurePadGroup(propertyId);
+    } catch (err) {
+      console.warn('[Pad group warning]:', err.message);
+      return null;
+    }
   },
 
   // ── Auth (Powered by Supabase Auth) ───────────────────────────────────────

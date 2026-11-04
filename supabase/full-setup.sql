@@ -307,7 +307,11 @@ ALTER TABLE tenancy ENABLE ROW LEVEL SECURITY;
 ALTER TABLE curfew_slips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
 
--- Drop previous policies to prevent duplicates on re-run
+-- Drop previous policies to prevent duplicates on re-run.
+-- NOTE: the messaging tables are excluded on purpose. Their policies are
+-- owned by supabase/add-messaging.sql, and dropping them here used to leave
+-- RLS switched on with no policy at all — which silently broke every chat
+-- ("no conversations", "permission denied for table messages").
 DO $$ 
 DECLARE
   pol record;
@@ -315,7 +319,8 @@ BEGIN
   FOR pol IN 
     SELECT policyname, tablename 
     FROM pg_policies 
-    WHERE schemaname = 'public' 
+    WHERE schemaname = 'public'
+      AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats')
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
   END LOOP;

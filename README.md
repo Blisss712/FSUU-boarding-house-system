@@ -63,6 +63,7 @@ Balay Urios is now configured to use **Supabase** (PostgreSQL + REST API) as its
    - Open and copy the contents of `supabase/full-setup.sql`.
    - Paste into the SQL Editor and click **Run**.
    - This creates all 10 tables (`properties`, `campuses`, `appliances`, `users`, `ocular_visits`, `sms_logs`, `saved_properties`, `tenancy`, `curfew_slips`, `receipts`) and sets up Row Level Security (RLS) policies. No demo accounts or listings are inserted — real accounts are created through Supabase Auth and real listings through the app.
+   - Then run `supabase/add-messaging.sql` the same way. It adds the chat tables and the automatic **pad group** for every listing (see [In-App Messaging](#in-app-messaging)).
 
 3. **Configure Environment Variables**:
    - In Supabase Dashboard, go to **Project Settings** -> **API**.
@@ -124,13 +125,35 @@ account. The badge is account-level, so it applies to every pad the landlord own
 
 ### In-App Messaging
 
-The **Messages** tab is a Messenger-style inbox:
+The **Messages** tab is a Messenger-style inbox with three kinds of chat:
 
+- **Pad groups (automatic):** every listing gets exactly one dedicated group chat, named `"<Pad name> · Pad Group"`. It is created by the database the moment the listing is created, the landlord who owns the listing is added automatically, and every **approved boarder** of that pad (an active `tenancy` row) is added automatically too. Approving a boarding application puts the new boarder in the group; ending a tenancy takes them out. Nobody has to create it or invite anyone, and it stays correct even if the boarder never opens the tab.
 - **Direct chats:** any signed-in user can search for another account (landlord, student, or auditor) and start a 1:1 conversation. Starting a chat that already exists reopens it instead of duplicating it.
-- **Group chats:** only landlord accounts can create a group. The landlord who created the group is recorded as its landlord, and only that account can add or remove members. Everyone else sees the member list read-only.
-- **Realtime:** new messages stream in live through Supabase Realtime, with a focus refresh as a fallback. Per-member read markers power the unread badges.
+- **Manual group chats:** only landlord accounts can create one. The landlord who created the group is recorded as its landlord, and only that account can add or remove members. Everyone else sees the member list read-only.
 
-Run `supabase/add-messaging.sql` once in the Supabase **SQL Editor**. It creates the `conversations`, `conversation_members`, and `messages` tables with their RLS policies and membership functions, and adds them to the `supabase_realtime` publication. Membership changes are rejected by the database unless the caller is the group's landlord, so the rule holds even outside this UI.
+Pad-group membership is **derived** from the pad, so it is read-only in the UI: a landlord cannot remove an active boarder by hand (the database re-adds them on the next sync, and the RPC refuses outright).
+
+Run `supabase/add-messaging.sql` once in the Supabase **SQL Editor**. It creates the `conversations`, `conversation_members`, and `messages` tables with their RLS policies and membership functions, adds them to the `supabase_realtime` publication, and installs the pad-group triggers. It also **backfills a pad group for every listing that already exists** (landlord + current boarders added), so old listings get their group on the next run.
+
+It is safe to re-run — re-running is also the repair step when messaging looks empty:
+
+- `full-setup.sql` / `rls-policies.sql` used to drop **every** policy in `public`, including the messaging policies. Re-running them left RLS enabled with no policy, so chat lists came back empty and inserts failed with `permission denied for table messages`. Both files now skip the messaging tables, and re-running `add-messaging.sql` restores the policies.
+
+Membership changes are rejected by the database unless the caller manages that group, so the rules hold even outside this UI.
+
+> Realtime note: if new messages do not stream in live, check **Database → Replication** in the Supabase dashboard and confirm `messages`, `conversation_members`, and `conversations` are in the `supabase_realtime` publication (the migration adds them).
+
+### Pad groups (details)
+
+| Piece | Where | What it does |
+|---|---|---|
+| `conversations."propertyId"` | `add-messaging.sql` | Marks a conversation as the pad group of a listing (unique, cascades on listing delete) |
+| `pad_group_sync(property_id)` | `add-messaging.sql` | Creates/repairs the pad group and rebuilds membership from the landlord + active boarders |
+| `ensure_pad_group(property_id)` | RPC | Open/repair a pad group (pad's landlord, its boarders, admins) |
+| `sync_pad_group(property_id)` | RPC | Force a membership re-sync (pad's landlord, admins) |
+| Triggers on `properties`, `tenancy`, `users` | `add-messaging.sql` | Create the group on listing insert; add a boarder on approval; remove them when the tenancy ends |
+
+Every trigger is exception-safe: a messaging error can never block creating a listing, boarding a pad, or editing a profile.
 
 ### Security & RLS:
 
@@ -166,8 +189,8 @@ All database queries are handled directly via the official Supabase Client (`@su
 | `curfew_slips` | Digital curfew exemption slips for hospital/clinical duties |
 | `receipts` | Official verified rent escrow receipts |
 | `saved_properties` | Student bookmarks and saved boarding houses |
-| `conversations` | Direct and group chat threads (group chats are landlord-managed) |
-| `conversation_members` | Chat participants, roles, and per-user read markers |
+| `conversations` | Direct chats, manual group chats, and one automatic **pad group** per listing (`propertyId`) |
+| `conversation_members` | Chat participants, roles, and per-user read markers (pad groups stay in sync with tenancies) |
 | `messages` | Chat messages streamed live through Supabase Realtime |
 
 ---

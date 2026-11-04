@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MessageSquare, Plus, Search, X, Send, Users, ArrowLeft,
-  UserPlus, Loader2, ShieldCheck, Check
+  UserPlus, Loader2, ShieldCheck, Check, Home
 } from 'lucide-react';
 import { api } from '../services/api';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
@@ -75,6 +75,9 @@ function formatDayLabel(value) {
 
 function conversationTitle(conv) {
   if (!conv) return '';
+  if (conv.isPadGroup) {
+    return conv.title || (conv.pad?.name ? `${conv.pad.name} · Pad Group` : 'Pad group');
+  }
   if (conv.isGroup) return conv.title || 'Group chat';
   const other = conv.otherMembers?.[0]?.user;
   return other?.name || other?.email || 'Direct message';
@@ -87,7 +90,9 @@ function memberName(conv, userId) {
 
 function conversationPreview(conv, currentUserId) {
   const last = conv.lastMessage;
-  if (!last) return 'No messages yet';
+  if (!last) {
+    return conv.isPadGroup ? 'Landlord and boarders of this pad' : 'No messages yet';
+  }
 
   const prefix = last.senderId === currentUserId
     ? 'You: '
@@ -97,17 +102,26 @@ function conversationPreview(conv, currentUserId) {
   return `${prefix}${last.body}`;
 }
 
-function Avatar({ person, group = false, size = 'md' }) {
+function Avatar({ person, group = false, pad = false, size = 'md' }) {
   const dimensions = size === 'sm'
     ? 'w-7 h-7 text-[10px]'
     : size === 'lg'
       ? 'w-11 h-11 text-sm'
       : 'w-10 h-10 text-xs';
+  const iconSize = size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4';
+
+  if (pad) {
+    return (
+      <div className={`${dimensions} rounded-2xl bg-[#0b1a30] text-amber-400 flex items-center justify-center shrink-0 ring-1 ring-amber-400/30`}>
+        <Home className={iconSize} />
+      </div>
+    );
+  }
 
   if (group) {
     return (
       <div className={`${dimensions} rounded-2xl bg-[#0b1a30] text-amber-400 flex items-center justify-center shrink-0`}>
-        <Users className={size === 'sm' ? 'w-3.5 h-3.5' : 'w-4 h-4'} />
+        <Users className={iconSize} />
       </div>
     );
   }
@@ -288,6 +302,7 @@ function GroupMembersModal({
 }) {
   const [query, setQuery] = useState('');
   const members = conversation.members || [];
+  const isPadGroup = Boolean(conversation.isPadGroup);
 
   const available = contacts
     .filter(contact => !members.some(member => member.userId === contact.id))
@@ -323,15 +338,17 @@ function GroupMembersModal({
 
         <div className="px-5 pt-4">
           <div className={`p-3 rounded-2xl border flex items-start gap-2 ${
-            canManage
+            isPadGroup || canManage
               ? 'bg-amber-50 border-amber-200 text-amber-900'
               : 'bg-slate-50 border-slate-200 text-slate-600'
           }`}>
             <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
             <p className="text-[11px] font-medium leading-relaxed">
-              {canManage
-                ? 'You are the landlord of this group, so you can add and remove members.'
-                : 'Only the group landlord can add or remove members.'}
+              {isPadGroup
+                ? 'This is the pad group. Every boarder of this pad is added automatically when the landlord approves their tenancy, and leaves when the tenancy ends.'
+                : canManage
+                  ? 'You are the landlord of this group, so you can add and remove members.'
+                  : 'Only the group landlord can add or remove members.'}
             </p>
           </div>
         </div>
@@ -354,8 +371,8 @@ function GroupMembersModal({
                       </p>
                       <p className="text-[10.5px] text-slate-500 truncate">
                         {isGroupLandlord
-                          ? 'Landlord · controls access'
-                          : roleLabel(member.user?.role)}
+                          ? (isPadGroup ? 'Landlord · owns this pad' : 'Landlord · controls access')
+                          : (isPadGroup ? `${roleLabel(member.user?.role)} · boarding here` : roleLabel(member.user?.role))}
                       </p>
                     </div>
                     {canManage && !isGroupLandlord && (
@@ -454,6 +471,7 @@ export default function MessagesView({ user, onOpenAuth }) {
 
   const activeIdRef = useRef(null);
   const messageRequestRef = useRef(0);
+  const padHealRef = useRef(false);
   const bottomRef = useRef(null);
 
   const loadConversations = useCallback(async () => {
@@ -559,6 +577,48 @@ export default function MessagesView({ user, onOpenAuth }) {
     return () => window.removeEventListener('focus', handleFocus);
   }, [user, loadConversations]);
 
+  // Pad groups are created by the database when a listing is created. This is
+  // a one-shot self-heal for pads that predate that rule (or if the trigger was
+  // never installed): a boarder opens their own pad group, and a landlord
+  // reconciles the group of every listing they own.
+  useEffect(() => {
+    if (!user || !isSupabaseConfigured || padHealRef.current) return undefined;
+
+    padHealRef.current = true;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        if (user.role === 'landlord' || user.role === 'admin') {
+          const listings = await api.getMyListings().catch(() => []);
+          const ids = (listings || [])
+            .map(item => item?.id)
+            .filter(Boolean)
+            .slice(0, 12);
+
+          if (cancelled || ids.length === 0) return;
+
+          await Promise.all(ids.map(id => api.ensurePadGroup(id).catch(() => null)));
+          if (!cancelled) await loadConversations();
+          return;
+        }
+
+        const room = await api.getMyRoom();
+        const propertyId = room?.data?.tenancy?.propertyId || room?.data?.property?.id;
+        if (cancelled || !propertyId) return;
+
+        const groupId = await api.ensurePadGroup(propertyId).catch(() => null);
+        if (!cancelled && groupId) await loadConversations();
+      } catch (err) {
+        console.warn('[Pad group self-heal skipped]:', err.message);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, loadConversations]);
+
   // Keep the newest message in view.
   useEffect(() => {
     if (!bottomRef.current) return;
@@ -605,8 +665,13 @@ export default function MessagesView({ user, onOpenAuth }) {
 
   const otherUser = activeConversation?.otherMembers?.[0]?.user || null;
   const groupMembers = activeConversation?.members || [];
+  const isPadGroupActive = Boolean(activeConversation?.isPadGroup);
+
+  // Pad-group membership mirrors the pad's tenancies, so it is never managed
+  // by hand here — the database adds/removes boarders with their tenancy.
   const canManageGroup = Boolean(
     activeConversation?.isGroup
+    && !isPadGroupActive
     && (user?.role === 'landlord' || user?.role === 'admin')
     && String(activeConversation?.createdBy) === String(user?.id)
   );
@@ -820,13 +885,14 @@ export default function MessagesView({ user, onOpenAuth }) {
                   <p className="text-[11px] text-slate-500 leading-relaxed">
                     {listSearch
                       ? 'Try a different name or keyword.'
-                      : 'Start a direct chat with a landlord or student, or create a group for your pad.'}
+                      : 'Your pad group appears here automatically, or start a direct chat with a landlord or student.'}
                   </p>
                 </div>
               ) : (
                 visibleConversations.map(conv => {
                   const isActive = conv.id === activeId;
                   const isGroup = Boolean(conv.isGroup);
+                  const isPad = Boolean(conv.isPadGroup);
                   const other = conv.otherMembers?.[0]?.user || null;
 
                   return (
@@ -837,7 +903,7 @@ export default function MessagesView({ user, onOpenAuth }) {
                         isActive ? 'bg-slate-100' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <Avatar person={isGroup ? null : other} group={isGroup} />
+                      <Avatar person={isGroup ? null : other} group={isGroup && !isPad} pad={isPad} />
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
@@ -851,6 +917,11 @@ export default function MessagesView({ user, onOpenAuth }) {
                           )}
                         </div>
                         <div className="flex items-center gap-2 mt-0.5">
+                          {isPad && (
+                            <span className="shrink-0 text-[8.5px] font-black uppercase tracking-wider text-amber-700 bg-amber-100 border border-amber-200 rounded-md px-1 py-0.5">
+                              Pad
+                            </span>
+                          )}
                           <p className={`text-[11.5px] truncate flex-1 ${
                             conv.unreadCount > 0 ? 'text-slate-700 font-semibold' : 'text-slate-500'
                           }`}>
@@ -895,7 +966,8 @@ export default function MessagesView({ user, onOpenAuth }) {
 
                   <Avatar
                     person={activeConversation.isGroup ? null : otherUser}
-                    group={activeConversation.isGroup}
+                    group={Boolean(activeConversation.isGroup) && !isPadGroupActive}
+                    pad={isPadGroupActive}
                   />
 
                   <div className="min-w-0 flex-1">
@@ -903,9 +975,11 @@ export default function MessagesView({ user, onOpenAuth }) {
                       {conversationTitle(activeConversation)}
                     </h3>
                     <p className="text-[10.5px] text-slate-500 truncate">
-                      {activeConversation.isGroup
-                        ? `${groupMembers.length} ${groupMembers.length === 1 ? 'member' : 'members'}${canManageGroup ? ' · You manage access' : ''}`
-                        : `${roleLabel(otherUser?.role)}${otherUser?.course ? ` · ${otherUser.course}` : ''}`}
+                      {isPadGroupActive
+                        ? `Pad group · ${groupMembers.length} ${groupMembers.length === 1 ? 'member' : 'members'} (landlord + boarders)`
+                        : activeConversation.isGroup
+                          ? `${groupMembers.length} ${groupMembers.length === 1 ? 'member' : 'members'}${canManageGroup ? ' · You manage access' : ''}`
+                          : `${roleLabel(otherUser?.role)}${otherUser?.course ? ` · ${otherUser.course}` : ''}`}
                     </p>
                   </div>
 
@@ -929,11 +1003,15 @@ export default function MessagesView({ user, onOpenAuth }) {
                   ) : messages.length === 0 ? (
                     <div className="h-full flex flex-col items-center justify-center text-center px-6">
                       <div className="w-12 h-12 rounded-2xl bg-white border border-slate-200 text-slate-300 flex items-center justify-center">
-                        <Send className="w-5 h-5" />
+                        {isPadGroupActive ? <Home className="w-5 h-5" /> : <Send className="w-5 h-5" />}
                       </div>
-                      <p className="text-xs font-bold text-slate-700 mt-3">Say hello</p>
-                      <p className="text-[11px] text-slate-500 mt-1">
-                        This is the start of your conversation.
+                      <p className="text-xs font-bold text-slate-700 mt-3">
+                        {isPadGroupActive ? 'Your pad group is ready' : 'Say hello'}
+                      </p>
+                      <p className="text-[11px] text-slate-500 mt-1 max-w-xs leading-relaxed">
+                        {isPadGroupActive
+                          ? 'The landlord and every boarder of this pad are added automatically. Use it for house announcements, bills, and gate reminders.'
+                          : 'This is the start of your conversation.'}
                       </p>
                     </div>
                   ) : (
