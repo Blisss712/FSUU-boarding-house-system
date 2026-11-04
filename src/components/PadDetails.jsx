@@ -29,6 +29,7 @@ import {
 import { api } from '../services/api';
 import { useAuth } from '../context/AuthContext';
 import LandlordProfileSheet from './LandlordProfileSheet';
+import MessageLandlordButton from './MessageLandlordButton';
 import BoardUnitModal from './BoardUnitModal';
 import AdminAuditModal from './AdminAuditModal';
 import CurfewApprovalModal from './CurfewApprovalModal';
@@ -50,6 +51,7 @@ export default function PadDetails({
   onSelectProperty,
   onBoardSuccess,
   onOpenAuth,
+  onOpenChat,
   onUpdateProperty,
   appliances: propAppliances
 }) {
@@ -529,6 +531,12 @@ export default function PadDetails({
               </div>
 
               <div className="flex items-center gap-2">
+                <MessageLandlordButton
+                  property={propToUse}
+                  variant="iconSolid"
+                  onOpenChat={onOpenChat}
+                  onOpenAuth={onOpenAuth}
+                />
                 <div className="flex items-center gap-1 bg-[#fef3c7] text-[#78350f] px-3 py-1.5 rounded-2xl text-xs font-black border border-[#fde68a]">
                   <Star className="w-3.5 h-3.5 fill-[#78350f] text-[#78350f]" />
                   <span>{(Number(rating) || 4.8).toFixed(1)}</span>
@@ -1258,6 +1266,17 @@ export default function PadDetails({
                   <span>Schedule Ocular Visit (Free)</span>
                 </button>
 
+                {/* Ask the host anything before applying — uses the in-app chat */}
+                <MessageLandlordButton
+                  property={propToUse}
+                  label="Message the Landlord"
+                  variant="outline"
+                  size="md"
+                  className="w-full"
+                  onOpenChat={onOpenChat}
+                  onOpenAuth={onOpenAuth}
+                />
+
                 <button
                   type="button"
                   onClick={() => onOpenParentShare(property)}
@@ -1333,6 +1352,8 @@ export default function PadDetails({
             setShowLandlordSheet(false);
             onViewLandlord?.(landlord);
           }}
+          onOpenChat={onOpenChat}
+          onOpenAuth={onOpenAuth}
           onClose={() => setShowLandlordSheet(false)}
         />
       )}

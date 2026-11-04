@@ -131,6 +131,34 @@ The **Messages** tab is a Messenger-style inbox with three kinds of chat:
 - **Direct chats:** any signed-in user can search for another account (landlord, student, or auditor) and start a 1:1 conversation. Starting a chat that already exists reopens it instead of duplicating it.
 - **Manual group chats:** only landlord accounts can create one. The landlord who created the group is recorded as its landlord, and only that account can add or remove members. Everyone else sees the member list read-only.
 
+#### Messaging a landlord straight from a board listing
+
+Every listing now has a **Message** action, so a student never has to hunt for the
+Messages tab or a phone number:
+
+- **Explore feed** — the chat button on each card (expanded and compact views).
+- **Pad details** — a message button on the landlord card and a "Message the
+  Landlord" button in the booking panel.
+- **Landlord profile** — the bottom sheet and the full profile page both have a
+  "Message landlord" button.
+- **My Room** — active boarders get a "Talk to your landlord" card, and a
+  **pending or declined application** gets the same button (it resolves the pad
+  from the application row).
+
+Tapping one opens (or reuses) the 1:1 direct chat with that host in the Messages
+tab, with a listing-specific opening line pre-filled in the composer — it is
+**never sent automatically**, the student can edit or clear it. Nothing is
+duplicated: starting a chat that already exists reopens the same thread.
+
+The host account is resolved client-side from the listing's `landlord` JSON, in
+the same order ownership is resolved elsewhere: `landlord.userId` →
+`landlord.email` → `landlord.name` (landlord accounts only). The button hides on
+a landlord's own listing, and if the host has no Balay Urios account yet the app
+says so and points at the phone number instead of failing silently.
+
+No migration is needed for this — it is a UI entry point onto the messaging
+tables and RPCs created by `supabase/add-messaging.sql`.
+
 Pad-group membership is **derived** from the pad, so it is read-only in the UI: a landlord cannot remove an active boarder by hand (the database re-adds them on the next sync, and the RPC refuses outright).
 
 Run `supabase/add-messaging.sql` once in the Supabase **SQL Editor**. It creates the `conversations`, `conversation_members`, and `messages` tables with their RLS policies and membership functions, adds them to the `supabase_realtime` publication, and installs the pad-group triggers. It also **backfills a pad group for every listing that already exists** (landlord + current boarders added), so old listings get their group on the next run.

@@ -2,6 +2,7 @@ import React from 'react';
 import { X, Phone, BadgeCheck, Home, Star, MapPin, ArrowRight } from 'lucide-react';
 import { getGateDistance } from '../utils/distance';
 import SocialLinks from './SocialLinks';
+import MessageLandlordButton from './MessageLandlordButton';
 
 /**
  * LandlordProfileSheet
@@ -13,6 +14,8 @@ import SocialLinks from './SocialLinks';
  *   currentProperty     — the property this was opened from
  *   onSelectProperty(p) — navigate to a pad
  *   onViewFullProfile() — open the full LandlordProfilePage
+ *   onOpenChat(id, opts)— open the in-app chat with this landlord
+ *   onOpenAuth(mode)    — prompt sign-in for signed-out visitors
  *   onClose()
  */
 export default function LandlordProfileSheet({
@@ -21,6 +24,8 @@ export default function LandlordProfileSheet({
   currentProperty,
   onSelectProperty,
   onViewFullProfile,
+  onOpenChat,
+  onOpenAuth,
   onClose
 }) {
   const theirPads = allProperties.filter(p => p.landlord?.name === landlord.name);
@@ -89,6 +94,30 @@ export default function LandlordProfileSheet({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
+          {/* Message the host straight from the profile — no phone number needed */}
+          <div className="px-5 py-4 border-b border-slate-100">
+            <MessageLandlordButton
+              landlord={landlord}
+              property={currentProperty || null}
+              padName={currentProperty?.name || ''}
+              label="Message landlord"
+              variant="solid"
+              size="md"
+              className="w-full"
+              onOpenChat={(conversationId, options) => {
+                onClose?.();
+                onOpenChat?.(conversationId, options);
+              }}
+              onOpenAuth={(mode) => {
+                onClose?.();
+                onOpenAuth?.(mode);
+              }}
+            />
+            <p className="text-center text-[10px] text-slate-400 mt-1.5">
+              Chat inside the app — you don't need to share your number
+            </p>
+          </div>
+
           {landlord.phone && (
             <div className="px-5 py-4 border-b border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Contact</p>

@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import StudentChecklistTags from './StudentChecklistTags';
 import LandlordProfileSheet from './LandlordProfileSheet';
+import MessageLandlordButton from './MessageLandlordButton';
 import { getGateDistance } from '../utils/distance';
 
 export default function PropertyCard({
@@ -18,7 +19,9 @@ export default function PropertyCard({
   isSaved,
   onToggleSave,
   allProperties = [],
-  onViewLandlord
+  onViewLandlord,
+  onOpenChat,
+  onOpenAuth
 }) {
   const {
     id,
@@ -178,13 +181,13 @@ export default function PropertyCard({
             )}
           </div>
 
-          {/* Landlord row + View Pad */}
+          {/* Landlord row + Message / View Pad */}
           <div className="pt-3 border-t border-slate-100 flex items-center justify-between gap-2">
             {/* Clickable landlord section */}
             {landlord && (
               <button
                 onClick={(e) => { e.stopPropagation(); setShowLandlord(true); }}
-                className="flex items-center gap-2.5 min-w-0 group/landlord rounded-xl p-1.5 -m-1.5 hover:bg-slate-50 transition-colors cursor-pointer"
+                className="flex items-center gap-2.5 min-w-0 flex-1 group/landlord rounded-xl p-1.5 -m-1.5 hover:bg-slate-50 transition-colors cursor-pointer"
                 title="View landlord profile"
               >
                 <div className="w-9 h-9 rounded-full bg-gradient-to-br from-slate-200 to-slate-100 text-slate-700 font-extrabold text-xs flex items-center justify-center shrink-0 ring-1 ring-slate-200 group-hover/landlord:ring-[#0b1a30] transition-all">
@@ -204,13 +207,23 @@ export default function PropertyCard({
               </button>
             )}
 
-            <button
-              onClick={() => onSelectProperty(property)}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0b1a30] hover:bg-blue-900 active:scale-95 text-white text-xs font-bold transition-all shadow-sm shrink-0"
-            >
-              <span>View Pad</span>
-              <ArrowRight className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <MessageLandlordButton
+                property={property}
+                variant="outline"
+                labelClassName="hidden sm:inline"
+                onOpenChat={onOpenChat}
+                onOpenAuth={onOpenAuth}
+              />
+
+              <button
+                onClick={() => onSelectProperty(property)}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-xl bg-[#0b1a30] hover:bg-blue-900 active:scale-95 text-white text-xs font-bold transition-all shadow-sm shrink-0"
+              >
+                <span>View Pad</span>
+                <ArrowRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -222,6 +235,8 @@ export default function PropertyCard({
           currentProperty={property}
           onSelectProperty={onSelectProperty}
           onViewFullProfile={() => onViewLandlord?.(landlord)}
+          onOpenChat={onOpenChat}
+          onOpenAuth={onOpenAuth}
           onClose={() => setShowLandlord(false)}
         />
       )}

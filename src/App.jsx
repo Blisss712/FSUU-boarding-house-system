@@ -73,6 +73,11 @@ export default function App() {
   const [savedPropertyIds, setSavedPropertyIds] = useState([]);
   const [hoveredPropertyId, setHoveredPropertyId] = useState(null);
 
+  // A specific chat requested from outside the Messages tab (the "Message
+  // landlord" button on a listing, in My Room, or in a landlord profile).
+  // `key` makes a repeat request for the same thread open it again.
+  const [chatTarget, setChatTarget] = useState(null);
+
   // Modals
   const [costCalcProperty, setCostCalcProperty] = useState(null);
   const [walkPovProperty, setWalkPovProperty] = useState(null);
@@ -95,6 +100,31 @@ export default function App() {
       setMyListings([]);
     }
   }, [user]);
+
+  /**
+   * Opens the Messages tab on one specific conversation. Used by the
+   * "Message landlord" buttons scattered across the feed, pad details and
+   * My Room — the chat itself is the existing in-app messaging system.
+   */
+  const openChat = useCallback((conversationId, options = {}) => {
+    if (!conversationId) return;
+
+    setChatTarget({
+      conversationId,
+      draft: options.draft || '',
+      key: `${conversationId}-${Date.now()}`
+    });
+    setSelectedProperty(null);
+    setViewingLandlord(null);
+    setActiveTab('messages');
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, []);
+
+  const openAuth = useCallback((mode = 'login') => setAuthModal(mode), []);
+
+  // The target has been opened inside MessagesView; forget it so returning to
+  // the tab later does not hijack the conversation list again.
+  const clearChatTarget = useCallback(() => setChatTarget(null), []);
 
   // Re-sync My Listings whenever the auth session changes (login/logout).
   useEffect(() => {
@@ -561,6 +591,8 @@ export default function App() {
             setSelectedProperty(p);
           }}
           onBack={() => setViewingLandlord(null)}
+          onOpenChat={openChat}
+          onOpenAuth={openAuth}
           onLandlordUpdated={(socials) => {
             const target = viewingLandlord.landlord || {};
             const matches = (owner) => {
@@ -597,6 +629,7 @@ export default function App() {
           onOpenScheduleVisit={(p) => setScheduleVisitProperty(p)}
           onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: selectedProperty })}
           onSelectProperty={(p) => setSelectedProperty(p)}
+          onOpenChat={openChat}
           onBoardSuccess={(_newTenancy) => {
             api.getProperties().then(res => setProperties(Array.isArray(res) ? res : (res?.data || []))).catch(() => {});
             setSelectedProperty(null);
@@ -641,6 +674,7 @@ export default function App() {
             onOpenWalkPov={(p) => setWalkPovProperty(p)}
               onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: null })}
             onOpenAuth={(mode) => setAuthModal(mode)}
+            onOpenChat={openChat}
           />
         </div>
       ) : activeTab === 'myroom' ? (
@@ -663,6 +697,7 @@ export default function App() {
               onOpenAuth={(mode) => setAuthModal(mode)}
               onExplore={() => setActiveTab('explore')}
               onSelectProperty={(p) => setSelectedProperty(p)}
+              onOpenChat={openChat}
             />
           )}
         </div>
@@ -683,6 +718,10 @@ export default function App() {
         <MessagesView
           user={user}
           onOpenAuth={(mode) => setAuthModal(mode)}
+          initialConversationId={chatTarget?.conversationId || null}
+          initialConversationKey={chatTarget?.key || null}
+          initialDraft={chatTarget?.draft || ''}
+          onInitialTargetConsumed={clearChatTarget}
         />
       ) : (
         /* ======================================================== */
@@ -832,6 +871,8 @@ export default function App() {
                             onToggleSave={user?.role === 'landlord' ? null : handleToggleSave}
                             allProperties={properties}
                             onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: property })}
+                            onOpenChat={openChat}
+                            onOpenAuth={openAuth}
                                             />
                         ) : (
                           <PropertyCard
@@ -841,6 +882,8 @@ export default function App() {
                             onToggleSave={user?.role === 'landlord' ? null : handleToggleSave}
                             allProperties={properties}
                             onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: property })}
+                            onOpenChat={openChat}
+                            onOpenAuth={openAuth}
                                             />
                         )}
                       </div>

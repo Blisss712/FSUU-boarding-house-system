@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Heart, Star, ChevronRight, Footprints, Bus, BadgeCheck, Check } from 'lucide-react';
 import StudentChecklistTags from './StudentChecklistTags';
 import LandlordProfileSheet from './LandlordProfileSheet';
+import MessageLandlordButton from './MessageLandlordButton';
 import { getGateDistance } from '../utils/distance';
 
 export default function CompactPropertyCard({
@@ -10,7 +11,9 @@ export default function CompactPropertyCard({
   isSaved,
   onToggleSave,
   allProperties = [],
-  onViewLandlord
+  onViewLandlord,
+  onOpenChat,
+  onOpenAuth
 }) {
   const {
     id,
@@ -133,25 +136,39 @@ export default function CompactPropertyCard({
           </div>
         </div>
 
-        {/* Landlord strip — separate tap target */}
+        {/* Landlord strip — separate tap targets: profile + message */}
         {landlord && (
-          <button
-            onClick={(e) => { e.stopPropagation(); setShowLandlord(true); }}
-            className="w-full flex items-center gap-2 px-3 py-2 border-t border-slate-100 bg-slate-50/60 hover:bg-slate-100 transition-colors group/ll cursor-pointer"
-          >
-            <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-extrabold text-[10px] flex items-center justify-center shrink-0">
-              {landlord.initials || landlord.name?.slice(0, 2).toUpperCase() || 'LL'}
+          <div className="w-full flex items-stretch border-t border-slate-100 bg-slate-50/60">
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowLandlord(true); }}
+              className="flex-1 min-w-0 flex items-center gap-2 pl-3 pr-1 py-2 hover:bg-slate-100 transition-colors group/ll cursor-pointer text-left"
+              title="View landlord profile"
+            >
+              <div className="w-6 h-6 rounded-full bg-slate-200 text-slate-700 font-extrabold text-[10px] flex items-center justify-center shrink-0">
+                {landlord.initials || landlord.name?.slice(0, 2).toUpperCase() || 'LL'}
+              </div>
+              <p className="text-[11px] font-semibold text-slate-600 truncate flex-1 min-w-0 flex items-center gap-1">
+                <span className="truncate">{landlord.name || 'Landlord'}</span>
+                {accountVerified && (
+                  <BadgeCheck className="w-3 h-3 text-emerald-500 shrink-0" />
+                )}
+              </p>
+              <span className="ml-auto text-[10px] text-blue-600 font-bold group-hover/ll:underline shrink-0 whitespace-nowrap hidden sm:inline">
+                View profile
+              </span>
+            </button>
+
+            <div className="flex items-center pr-2 pl-1 shrink-0">
+              <MessageLandlordButton
+                property={property}
+                label="Message"
+                size="xs"
+                variant="solid"
+                onOpenChat={onOpenChat}
+                onOpenAuth={onOpenAuth}
+              />
             </div>
-            <p className="text-[11px] font-semibold text-slate-600 truncate flex items-center gap-1">
-              {landlord.name || 'Landlord'}
-              {accountVerified && (
-                <BadgeCheck className="w-3 h-3 text-emerald-500 shrink-0" />
-              )}
-            </p>
-            <span className="ml-auto text-[10px] text-blue-600 font-bold group-hover/ll:underline shrink-0">
-              View profile
-            </span>
-          </button>
+          </div>
         )}
       </div>
 
@@ -162,6 +179,8 @@ export default function CompactPropertyCard({
           currentProperty={property}
           onSelectProperty={onSelectProperty}
           onViewFullProfile={() => onViewLandlord?.(landlord)}
+          onOpenChat={onOpenChat}
+          onOpenAuth={onOpenAuth}
           onClose={() => setShowLandlord(false)}
         />
       )}

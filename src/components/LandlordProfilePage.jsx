@@ -7,6 +7,7 @@ import { getGateDistance } from '../utils/distance';
 import { useAuth } from '../context/AuthContext';
 import LandlordIdCard from './LandlordIdCard';
 import LandlordSocialCard from './LandlordSocialCard';
+import MessageLandlordButton from './MessageLandlordButton';
 
 /**
  * LandlordProfilePage
@@ -18,6 +19,8 @@ import LandlordSocialCard from './LandlordSocialCard';
  *   currentProperty — which property was open when this was triggered
  *   onSelectProperty(p) — navigate to a pad
  *   onBack()        — go back to previous view
+ *   onOpenChat(id, opts) — open the in-app chat with this landlord
+ *   onOpenAuth(mode)     — prompt sign-in for signed-out visitors
  */
 export default function LandlordProfilePage({
   landlord,
@@ -25,7 +28,9 @@ export default function LandlordProfilePage({
   currentProperty,
   onSelectProperty,
   onBack,
-  onLandlordUpdated
+  onLandlordUpdated,
+  onOpenChat,
+  onOpenAuth
 }) {
   const { user } = useAuth();
 
@@ -167,11 +172,29 @@ export default function LandlordProfilePage({
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-2xl mx-auto px-4 py-5 space-y-5 pb-24">
 
-          {/* Contact card */}
-          {landlord.phone && (
-            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Contact</p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {/* Contact card — in-app chat first, phone as the fallback */}
+          <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-2">
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Contact</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <MessageLandlordButton
+                landlord={landlord}
+                property={currentProperty || null}
+                padName={currentProperty?.name || ''}
+                label="Message landlord"
+                variant="solid"
+                size="md"
+                className="w-full"
+                onOpenChat={(conversationId, options) => {
+                  onBack?.();
+                  onOpenChat?.(conversationId, options);
+                }}
+                onOpenAuth={(mode) => {
+                  onBack?.();
+                  onOpenAuth?.(mode);
+                }}
+              />
+
+              {landlord.phone && (
                 <a
                   href={`tel:${landlord.phone}`}
                   className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors group"
@@ -184,9 +207,12 @@ export default function LandlordProfilePage({
                     <p className="text-xs text-slate-500">Tap to call · 7AM–9PM</p>
                   </div>
                 </a>
-              </div>
+              )}
             </div>
-          )}
+            <p className="text-[10px] text-slate-400">
+              In-app chat keeps your number private — the host replies in Messages.
+            </p>
+          </div>
 
           {/* Social links (visible to all; editable by the host) */}
           <LandlordSocialCard

@@ -264,6 +264,24 @@ export function landlordOwnsProperty(prop, identity) {
   return false;
 }
 
+/**
+ * Strict account match for "is this landlord JSON me?" — used before opening a
+ * chat so nobody can message themselves. Unlike `landlordOwnsProperty` this
+ * deliberately ignores the legacy `users.propertyId` pointer: a boarder's
+ * profile carries the pad they board, and that must never be read as ownership.
+ */
+export function landlordMatchesAccount(landlord, identity) {
+  if (!landlord || !identity) return false;
+
+  if (identity.id && landlord.userId && normalizeId(landlord.userId) === normalizeId(identity.id)) {
+    return true;
+  }
+  if (identity.email && landlord.email && normalizeId(landlord.email) === normalizeId(identity.email)) {
+    return true;
+  }
+  return false;
+}
+
 // ─── Pure Supabase API Surface ───────────────────────────────────────────────
 
 export const api = {
@@ -2110,6 +2128,110 @@ export const api = {
 
     if (error) throw messagingError(error, 'Could not start that conversation.');
     return data;
+  },
+
+  /**
+   * The user account behind a listing's `landlord` JSON, or null when that host
+   * has not created a Balay Urios account yet.
+   *
+   * Resolution order mirrors ownership everywhere else in the app:
+   *   landlord.userId  -> landlord.email -> landlord.name (landlord accounts)
+   * `users` is publicly readable, so a student can resolve the host account
+   * before the first message exists.
+   */
+  async resolveLandlordAccount(landlord = {}) {
+    const columns = 'id, name, email, role';
+
+    const wantedId = normalizeId(landlord?.userId);
+    if (wantedId) {
+      const { data } = await supabase
+        .from('users')
+        .select(columns)
+        .eq('id', String(landlord.userId).trim())
+        .limit(1);
+      if (data?.[0]) return data[0];
+    }
+
+    // Emails are stored lower-cased by sign-up, but legacy rows may not be, so
+    // try the value as written and then lower-cased. `eq` (not `ilike`) keeps
+    // `_` and `%` in an address from acting as LIKE wildcards.
+    const email = String(landlord?.email || '').trim();
+    const emailCandidates = Array.from(new Set([email, email.toLowerCase()].filter(Boolean)));
+
+    for (const candidate of emailCandidates) {
+      const { data } = await supabase
+        .from('users')
+        .select(columns)
+        .eq('email', candidate)
+        .limit(1);
+      if (data?.[0]) return data[0];
+    }
+
+    const name = String(landlord?.name || '').trim();
+    if (name) {
+      const { data } = await supabase
+        .from('users')
+        .select(columns)
+        .eq('name', name)
+        .eq('role', 'landlord')
+        .limit(1);
+      if (data?.[0]) return data[0];
+    }
+
+    return null;
+  },
+
+  /**
+   * Opens (or reuses) the direct chat between the signed-in user and the
+   * landlord of a listing.
+   *
+   * Accepts a property row, or just `{ propertyId }` when the caller only knows
+   * the pad (e.g. a pending boarding application or a saved listing stub).
+   *
+   * Returns `{ conversationId, landlord }`. Throws an ApiError the UI can show
+   * verbatim when the pad has no landlord or the landlord has no account yet.
+   */
+  async openLandlordChat(listing = {}) {
+    const identity = await getAuthIdentity();
+    if (!identity) throw new ApiError('Sign in to message this landlord.', 401);
+
+    let landlord = listing?.landlord || null;
+    const propertyId = listing?.propertyId || listing?.property?.id || listing?.id || null;
+
+    if (!landlord && propertyId) {
+      const property = await this.getPropertyById(propertyId);
+      landlord = property?.landlord || null;
+    }
+
+    if (!landlord || (!landlord.name && !landlord.email && !landlord.userId)) {
+      throw new ApiError(
+        'This pad has not published a landlord yet, so there is nobody to message.',
+        404
+      );
+    }
+
+    if (landlordMatchesAccount(landlord, identity)) {
+      throw new ApiError('This is your own listing — you cannot message yourself.', 400);
+    }
+
+    const account = await this.resolveLandlordAccount(landlord);
+    if (!account) {
+      throw new ApiError(
+        'This landlord has not activated a Balay Urios account yet, so in-app messages cannot reach them. Call or text the number on their profile instead.',
+        404
+      );
+    }
+
+    if (normalizeId(account.id) === normalizeId(identity.id)) {
+      throw new ApiError('This is your own listing — you cannot message yourself.', 400);
+    }
+
+    const conversationId = await this.startDirectConversation(account.id);
+    if (!conversationId) {
+      throw new ApiError('Could not open a conversation with this landlord.', 500);
+    }
+
+    return { conversationId, landlord: account };
   },
 
   /**

@@ -3,9 +3,10 @@ import {
   Bookmark, Clock, FileText, Award, Building2, Plus, Minus, 
   Share2, MapPin, Eye, Home, Zap, CheckCircle2, XCircle,
   Calendar, ShieldCheck, X, RefreshCw,
-  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck
+  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck, MessageSquare
 } from 'lucide-react';
 import PropertyCard from './PropertyCard';
+import MessageLandlordButton from './MessageLandlordButton';
 import LeaveTenancyModal from './LeaveTenancyModal';
 import PadEditorModal from './PadEditorModal';
 import AdminAuditModal from './AdminAuditModal';
@@ -18,7 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { padHasCurfew } from '../utils/curfew';
 
-export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onViewLandlord, onOpenAuth }) {
+export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onViewLandlord, onOpenAuth, onOpenChat }) {
   const { user } = useAuth();
 
   if (!user) {
@@ -87,6 +88,8 @@ export function SavedView({ savedProperties, allProperties = [], onSelectPropert
             onViewLandlord={onViewLandlord}
             onOpenCostCalc={onOpenCostCalc}
             onOpenWalkPov={onOpenWalkPov}
+            onOpenChat={onOpenChat}
+            onOpenAuth={onOpenAuth}
           />
         ))}
       </div>
@@ -1267,7 +1270,7 @@ export function AdminAuditPortalView({
   );
 }
 
-export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
+export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat }) {
   const { user, token } = useAuth();
   const [loading, setLoading] = React.useState(true);
   const [tenancyData, setTenancyData] = React.useState(null);
@@ -1463,6 +1466,21 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
             </button>
           </div>
         )}
+
+        {/* Even before approval the applicant can ask the host a question */}
+        {myApplication.propertyId && (
+          <div className="flex justify-center">
+            <MessageLandlordButton
+              propertyId={myApplication.propertyId}
+              padName={myApplication.propertyName}
+              label="Message landlord"
+              variant="outline"
+              size="md"
+              onOpenChat={onOpenChat}
+              onOpenAuth={onOpenAuth}
+            />
+          </div>
+        )}
       </div>
     );
   }
@@ -1642,6 +1660,33 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
           </div>
         </div>
       </div>
+
+      {/* Direct line to the landlord: rent, repairs, renewal, gate keys */}
+      {property && (
+      <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="w-10 h-10 rounded-2xl bg-blue-50 text-blue-700 border border-blue-100 flex items-center justify-center shrink-0">
+            <MessageSquare className="w-5 h-5" />
+          </div>
+          <div className="min-w-0">
+            <h4 className="font-extrabold text-sm text-slate-900 leading-tight">Talk to your landlord</h4>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Ask about rent, repairs, renewal or gate keys
+              {property?.landlord?.name ? ` — ${property.landlord.name}` : ''} replies right here in the app.
+            </p>
+          </div>
+        </div>
+        <MessageLandlordButton
+          property={property}
+          label="Message landlord"
+          variant="solid"
+          size="md"
+          className="w-full sm:w-auto"
+          onOpenChat={onOpenChat}
+          onOpenAuth={onOpenAuth}
+        />
+      </div>
+      )}
 
       {/* Digital Curfew Pass Slip Section (hidden for pads with no curfew) */}
       {padHasCurfew(property) && (

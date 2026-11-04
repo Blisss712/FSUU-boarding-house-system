@@ -452,7 +452,14 @@ function GroupMembersModal({
   );
 }
 
-export default function MessagesView({ user, onOpenAuth }) {
+export default function MessagesView({
+  user,
+  onOpenAuth,
+  initialConversationId = null,
+  initialConversationKey = null,
+  initialDraft = '',
+  onInitialTargetConsumed
+}) {
   const [conversations, setConversations] = useState([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [activeId, setActiveId] = useState(null);
@@ -472,6 +479,7 @@ export default function MessagesView({ user, onOpenAuth }) {
   const activeIdRef = useRef(null);
   const messageRequestRef = useRef(0);
   const padHealRef = useRef(false);
+  const initialTargetHandledRef = useRef(null);
   const bottomRef = useRef(null);
 
   const loadConversations = useCallback(async () => {
@@ -490,17 +498,20 @@ export default function MessagesView({ user, onOpenAuth }) {
     }
   }, [user]);
 
-  const openConversation = useCallback(async (conv) => {
+  const openConversation = useCallback(async (conv, options = {}) => {
     if (!conv?.id) return;
 
     const requestId = messageRequestRef.current + 1;
     messageRequestRef.current = requestId;
+    const switchingThread = activeIdRef.current !== conv.id;
 
     setActiveId(conv.id);
     activeIdRef.current = conv.id;
     setShowMembers(false);
     setMessages([]);
     setError('');
+    // A draft belongs to the thread it was typed in; never carry it across.
+    if (switchingThread) setDraft('');
     setLoadingMessages(true);
     setConversations(previous =>
       previous.map(item => (item.id === conv.id ? { ...item, unreadCount: 0 } : item))
@@ -510,6 +521,9 @@ export default function MessagesView({ user, onOpenAuth }) {
       const rows = await api.getMessages(conv.id);
       if (requestId !== messageRequestRef.current) return;
       setMessages(rows);
+      // A "Message landlord" tap can pre-fill an opening line — but only when
+      // the thread is empty, so an ongoing conversation is never overwritten.
+      if (options.draft && rows.length === 0) setDraft(options.draft);
       await api.markConversationRead(conv.id);
     } catch (err) {
       if (requestId === messageRequestRef.current) {
@@ -576,6 +590,31 @@ export default function MessagesView({ user, onOpenAuth }) {
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, [user, loadConversations]);
+
+  // A "Message landlord" tap in the feed or My Room opens this tab with a
+  // target conversation id (plus an optional starter draft). Consume it once,
+  // as soon as the inbox that owns it has loaded.
+  useEffect(() => {
+    if (!user || !initialConversationId) return;
+
+    const targetKey = `${initialConversationId}::${initialConversationKey || ''}`;
+    if (initialTargetHandledRef.current === targetKey) return;
+
+    const target = conversations.find(conv => conv.id === initialConversationId);
+    if (!target) return;
+
+    initialTargetHandledRef.current = targetKey;
+    openConversation(target, { draft: initialDraft });
+    onInitialTargetConsumed?.();
+  }, [
+    user,
+    initialConversationId,
+    initialConversationKey,
+    initialDraft,
+    conversations,
+    openConversation,
+    onInitialTargetConsumed
+  ]);
 
   // Pad groups are created by the database when a listing is created. This is
   // a one-shot self-heal for pads that predate that rule (or if the trigger was
