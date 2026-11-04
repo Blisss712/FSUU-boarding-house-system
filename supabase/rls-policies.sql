@@ -18,11 +18,11 @@
 --     may insert / update / delete. Browsing stays public.
 --   * Profiles (users): only the owner (or an admin) may update;
 --     insert is self-only; delete is admin-only. Read stays public so
---     the in-app chat and tenant views keep working.
+--     tenant views keep working.
 --   * User-owned records (saved_properties, tenancy, curfew_slips,
 --     receipts): scoped to the owning user, the owning landlord, or an
 --     admin.
---   * chats / sms_logs / ocular_visits have no user-id column to scope
+--   * sms_logs / ocular_visits have no user-id column to scope
 --     cleanly, so writes are now limited to signed-in users while reads
 --     stay public (see the note at the bottom).
 --
@@ -113,7 +113,7 @@ CREATE POLICY "properties_delete" ON properties FOR DELETE
   );
 
 -- ------------------------------------------------------------
--- users — public read (chat/tenant views need it), owner-only writes
+-- users — public read (tenant views need it), owner-only writes
 -- ------------------------------------------------------------
 CREATE POLICY "users_select" ON users FOR SELECT USING (true);
 
@@ -211,16 +211,12 @@ CREATE POLICY "receipts_delete" ON receipts FOR DELETE
   USING ("userId" = auth.uid()::text OR public.is_admin());
 
 -- ------------------------------------------------------------
--- chats / sms_logs / ocular_visits
+-- sms_logs / ocular_visits
 -- These tables have no user-id column to scope ownership by, so we keep
 -- public read but require a signed-in user for writes. This is still
 -- permissive; if you later add a sender/owner id column, scope these the
 -- same way as tenancy/curfew above.
 -- ------------------------------------------------------------
-CREATE POLICY "chats_select" ON chats FOR SELECT USING (true);
-CREATE POLICY "chats_insert" ON chats FOR INSERT
-  WITH CHECK (COALESCE(auth.jwt()->>'role', '') = 'authenticated');
-
 CREATE POLICY "sms_select" ON sms_logs FOR SELECT USING (true);
 CREATE POLICY "sms_insert" ON sms_logs FOR INSERT
   WITH CHECK (COALESCE(auth.jwt()->>'role', '') = 'authenticated');

@@ -10,8 +10,7 @@ export default function CompactPropertyCard({
   isSaved,
   onToggleSave,
   allProperties = [],
-  onViewLandlord,
-  onOpenChat
+  onViewLandlord
 }) {
   const {
     id,
@@ -27,6 +26,7 @@ export default function CompactPropertyCard({
 
   // Landlord's choice: walking minutes or commute minutes in the feed.
   const gateDistance = getGateDistance(property);
+  const accountVerified = landlord?.isUriosVerified === true;
   const [showLandlord, setShowLandlord] = useState(false);
 
   return (
@@ -143,8 +143,10 @@ export default function CompactPropertyCard({
               {landlord.initials || landlord.name?.slice(0, 2).toUpperCase() || 'LL'}
             </div>
             <p className="text-[11px] font-semibold text-slate-600 truncate flex items-center gap-1">
-              {landlord.name || 'Verified Landlord'}
-              <BadgeCheck className="w-3 h-3 text-blue-400 shrink-0" />
+              {landlord.name || 'Landlord'}
+              {accountVerified && (
+                <BadgeCheck className="w-3 h-3 text-emerald-500 shrink-0" />
+              )}
             </p>
             <span className="ml-auto text-[10px] text-blue-600 font-bold group-hover/ll:underline shrink-0">
               View profile
@@ -160,7 +162,6 @@ export default function CompactPropertyCard({
           currentProperty={property}
           onSelectProperty={onSelectProperty}
           onViewFullProfile={() => onViewLandlord?.(landlord)}
-          onOpenChat={onOpenChat}
           onClose={() => setShowLandlord(false)}
         />
       )}

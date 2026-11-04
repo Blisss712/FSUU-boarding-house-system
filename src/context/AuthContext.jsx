@@ -17,9 +17,6 @@ function clearStaleSessionStorage() {
   try {
     localStorage.removeItem('balay_active_tenancy_prop_id');
     localStorage.removeItem('balay_tenancy_left');
-    localStorage.removeItem('balay_guest_chat_id');
-    localStorage.removeItem('balay_chatted_properties');
-    localStorage.removeItem('balay_seen_notif_ids');
   } catch {}
 }
 

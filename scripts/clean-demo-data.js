@@ -24,7 +24,7 @@ if (!SUPABASE_URL || !SUPABASE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// Seeded demo listings. Deleting a property cascades to chats, tenancy,
+// Seeded demo listings. Deleting a property cascades to tenancy,
 // saved_properties, curfew_slips, receipts and ocular_visits.
 const DEMO_PROPERTY_IDS = [
   'villa-guingona',

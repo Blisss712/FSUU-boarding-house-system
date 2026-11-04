@@ -11,10 +11,10 @@ import TrueCostCalculatorModal from './components/TrueCostCalculatorModal';
 import WalkPovModal from './components/WalkPovModal';
 import ParentShareModal from './components/ParentShareModal';
 import ScheduleVisitModal from './components/ScheduleVisitModal';
-import ChatModal from './components/ChatModal';
 import AuthModal from './components/AuthModal';
 import LandlordProfilePage from './components/LandlordProfilePage';
 import BottomNav from './components/BottomNav';
+import MessagesView from './components/MessagesView';
 import { SavedView, MyRoomView, ProfileView, MyListingsView, AdminAuditPortalView } from './components/TabViews';
 import { api } from './services/api';
 import { useAuth } from './context/AuthContext';
@@ -78,10 +78,6 @@ export default function App() {
   const [walkPovProperty, setWalkPovProperty] = useState(null);
   const [parentShareProperty, setParentShareProperty] = useState(null);
   const [scheduleVisitProperty, setScheduleVisitProperty] = useState(null);
-  const [chatProperty, setChatProperty] = useState(null);
-
-  // Notifications: recent messages from other users for the bell icon
-  const [notifications, setNotifications] = useState([]);
 
   // The landlord's own listings, hydrated straight from Supabase so the
   // My Listings view always reflects the live backend (not a stale client copy).
@@ -116,88 +112,6 @@ export default function App() {
     }
     await refreshMyListings();
   }, [refreshMyListings]);
-
-  // Fetch new messages for notifications (for logged-in users)
-  const fetchNotifications = useCallback(async () => {
-    if (!user) return;
-
-    try {
-      // Determine which properties to poll
-      let targetProperties = [];
-      if (user.role === 'landlord') {
-        // Landlord: their own listings (same source as the My Listings view)
-        targetProperties = myListings;
-      } else {
-        // Boarder: any property they've chatted on (stored in localStorage)
-        const chattedIds = JSON.parse(localStorage.getItem('balay_chatted_properties') || '[]');
-        targetProperties = properties.filter(p => chattedIds.includes(p.id));
-      }
-
-      if (!targetProperties.length) return;
-
-      const allNotifs = [];
-      const seenIds = JSON.parse(localStorage.getItem('balay_seen_notif_ids') || '[]');
-
-      for (const prop of targetProperties.slice(0, 5)) {
-        const msgs = await api.getChatHistory(prop.id, user.role === 'landlord' ? null : user.id);
-        // Get messages from the other side (not sent by current user)
-        const incoming = msgs.filter(m => {
-          const role = m.senderRole || m.parsedSender?.role || 'boarder';
-          const isFromMe = user.role === 'landlord' ? role === 'landlord' : role === 'boarder';
-          return !isFromMe && !m.id.startsWith('chat-init-') && m.id !== 'chat-001';
-        });
-
-        // Take the last 3
-        for (const m of incoming.slice(-3)) {
-          if (allNotifs.some(n => n.id === m.id)) continue;
-          allNotifs.push({
-            id: m.id,
-            senderName: m.senderName || m.parsedSender?.name || 'Someone',
-            propertyName: prop.name,
-            propertyId: prop.id,
-            text: m.text,
-            time: m.time || '',
-            read: seenIds.includes(m.id)
-          });
-        }
-      }
-
-      // Sort newest first (by index order, since we don't have reliable timestamps)
-      setNotifications(allNotifs.reverse());
-    } catch {
-      // Silent fail — notifications are non-critical
-    }
-  }, [user, properties, myListings]);
-
-  // Poll for notifications every 15 seconds when logged in
-  useEffect(() => {
-    if (!user) {
-      setNotifications([]);
-      return;
-    }
-    fetchNotifications();
-    const interval = setInterval(fetchNotifications, 15000);
-    return () => clearInterval(interval);
-  }, [user, fetchNotifications]);
-
-  const handleMarkAllRead = useCallback(() => {
-    const allIds = notifications.map(n => n.id);
-    localStorage.setItem('balay_seen_notif_ids', JSON.stringify(allIds));
-    setNotifications(prev => prev.map(n => ({ ...n, read: true })));
-  }, [notifications]);
-
-  // Track properties a boarder has opened chat for, so we can poll their notifications
-  const handleOpenChat = useCallback((p) => {
-    const prop = p || { id: 'all' };
-    setChatProperty(prop);
-    if (prop?.id && prop.id !== 'all' && user?.role !== 'landlord') {
-      const existing = JSON.parse(localStorage.getItem('balay_chatted_properties') || '[]');
-      if (!existing.includes(prop.id)) {
-        localStorage.setItem('balay_chatted_properties', JSON.stringify([...existing, prop.id]));
-      }
-    }
-    handleMarkAllRead();
-  }, [user, handleMarkAllRead]);
 
   // Initial fetch strictly from Supabase
   useEffect(() => {
@@ -622,19 +536,6 @@ export default function App() {
           setActiveTab(tab);
           setSelectedProperty(null);
         }}
-        onOpenMessages={(propertyId) => {
-          if (propertyId && typeof propertyId === 'string') {
-            const prop = properties.find(p => p.id === propertyId);
-            setChatProperty(prop || { id: 'all' });
-          } else {
-            setChatProperty({ id: 'all' });
-          }
-          // Mark all notifications read when opening messages
-          handleMarkAllRead();
-        }}
-        unreadMessagesCount={notifications.filter(n => !n.read).length}
-        notifications={notifications}
-        onMarkAllRead={handleMarkAllRead}
         user={user}
         onLogin={() => setAuthModal('login')}
         onSignup={() => setAuthModal('signup')}
@@ -660,7 +561,29 @@ export default function App() {
             setSelectedProperty(p);
           }}
           onBack={() => setViewingLandlord(null)}
-          onOpenChat={handleOpenChat}
+          onLandlordUpdated={(socials) => {
+            const target = viewingLandlord.landlord || {};
+            const matches = (owner) => {
+              if (!owner) return false;
+              if (target.userId && owner.userId && String(owner.userId) === String(target.userId)) return true;
+              if (target.email && owner.email && String(owner.email).toLowerCase() === String(target.email).toLowerCase()) return true;
+              return Boolean(
+                target.name && owner.name &&
+                String(owner.name).toLowerCase() === String(target.name).toLowerCase()
+              );
+            };
+            const patch = (list) => list.map(p => (
+              matches(p.landlord)
+                ? { ...p, landlord: { ...p.landlord, ...socials } }
+                : p
+            ));
+
+            setProperties(patch);
+            setMyListings(patch);
+            setViewingLandlord(prev => (
+              prev ? { ...prev, landlord: { ...prev.landlord, ...socials } } : prev
+            ));
+          }}
         />
       ) : selectedProperty ? (
         <PadDetails
@@ -672,7 +595,6 @@ export default function App() {
           onOpenWalkPov={(p) => setWalkPovProperty(p)}
           onOpenParentShare={(p) => setParentShareProperty(p)}
           onOpenScheduleVisit={(p) => setScheduleVisitProperty(p)}
-          onOpenChat={handleOpenChat}
           onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: selectedProperty })}
           onSelectProperty={(p) => setSelectedProperty(p)}
           onBoardSuccess={(_newTenancy) => {
@@ -689,6 +611,10 @@ export default function App() {
             properties={properties}
             onSelectProperty={(p) => setSelectedProperty(p)}
             onUpdateProperty={handleEditProperty}
+            onViewLandlord={(landlord, fromProperty) => {
+              setViewingLandlord({ landlord, fromProperty: fromProperty || null });
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           />
         </div>
       ) : user?.role === 'landlord' && (activeTab === 'listings' || activeTab === 'saved') ? (
@@ -696,7 +622,6 @@ export default function App() {
           <MyListingsView
             properties={myListings}
             onSelectProperty={(p) => setSelectedProperty(p)}
-            onOpenChat={(p) => p && handleOpenChat(p)}
             onOpenParentShare={(p) => setParentShareProperty(p)}
             onUpdateAvailability={handleUpdatePropertyAvailability}
             onCreateProperty={handleCreateProperty}
@@ -714,8 +639,7 @@ export default function App() {
             onToggleSave={handleToggleSave}
             onOpenCostCalc={(p) => setCostCalcProperty(p)}
             onOpenWalkPov={(p) => setWalkPovProperty(p)}
-            onOpenChat={handleOpenChat}
-            onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: null })}
+              onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: null })}
             onOpenAuth={(mode) => setAuthModal(mode)}
           />
         </div>
@@ -725,8 +649,7 @@ export default function App() {
             <MyListingsView
               properties={myListings}
               onSelectProperty={(p) => setSelectedProperty(p)}
-              onOpenChat={(p) => p && handleOpenChat(p)}
-              onOpenParentShare={(p) => setParentShareProperty(p)}
+                onOpenParentShare={(p) => setParentShareProperty(p)}
               onUpdateAvailability={handleUpdatePropertyAvailability}
               onCreateProperty={handleCreateProperty}
               onEditProperty={handleEditProperty}
@@ -747,9 +670,20 @@ export default function App() {
         <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
           <ProfileView
             onOpenAuth={(mode) => setAuthModal(mode)}
-            onOpenChat={() => properties[0] && handleOpenChat(properties[0])}
+            onOpenLandlordProfile={(landlord) => {
+              setViewingLandlord({
+                landlord,
+                fromProperty: myListings[0] || properties.find(p => p.landlord?.email === user?.email) || null
+              });
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
           />
         </div>
+      ) : activeTab === 'messages' ? (
+        <MessagesView
+          user={user}
+          onOpenAuth={(mode) => setAuthModal(mode)}
+        />
       ) : (
         /* ======================================================== */
         /* EXPLORE FEED: FULLY SCALABLE DESKTOP & MOBILE ARCHITECTURE */
@@ -898,8 +832,7 @@ export default function App() {
                             onToggleSave={user?.role === 'landlord' ? null : handleToggleSave}
                             allProperties={properties}
                             onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: property })}
-                            onOpenChat={handleOpenChat}
-                          />
+                                            />
                         ) : (
                           <PropertyCard
                             property={property}
@@ -908,8 +841,7 @@ export default function App() {
                             onToggleSave={user?.role === 'landlord' ? null : handleToggleSave}
                             allProperties={properties}
                             onViewLandlord={(landlord) => setViewingLandlord({ landlord, fromProperty: property })}
-                            onOpenChat={handleOpenChat}
-                          />
+                                            />
                         )}
                       </div>
                     ))}
@@ -945,11 +877,6 @@ export default function App() {
           savedCount={savedPropertyIds.length}
           user={user}
           myListingsCount={myListings.length}
-          onOpenMessages={() => {
-            setChatProperty({ id: 'all' });
-            handleMarkAllRead();
-          }}
-          unreadMessagesCount={notifications.filter(n => !n.read).length}
         />
       )}
 
@@ -1026,14 +953,6 @@ export default function App() {
         <ScheduleVisitModal
           property={scheduleVisitProperty}
           onClose={() => setScheduleVisitProperty(null)}
-        />
-      )}
-
-      {chatProperty && (
-        <ChatModal
-          property={chatProperty}
-          allProperties={properties}
-          onClose={() => setChatProperty(null)}
         />
       )}
 

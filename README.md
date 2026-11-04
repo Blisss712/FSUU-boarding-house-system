@@ -62,7 +62,7 @@ Balay Urios is now configured to use **Supabase** (PostgreSQL + REST API) as its
    - In your Supabase Dashboard, click on **SQL Editor** (left sidebar).
    - Open and copy the contents of `supabase/full-setup.sql`.
    - Paste into the SQL Editor and click **Run**.
-   - This creates all 11 tables (`properties`, `campuses`, `appliances`, `users`, `ocular_visits`, `chats`, `sms_logs`, `saved_properties`, `tenancy`, `curfew_slips`, `receipts`) and sets up Row Level Security (RLS) policies. No demo accounts or listings are inserted — real accounts are created through Supabase Auth and real listings through the app.
+   - This creates all 10 tables (`properties`, `campuses`, `appliances`, `users`, `ocular_visits`, `sms_logs`, `saved_properties`, `tenancy`, `curfew_slips`, `receipts`) and sets up Row Level Security (RLS) policies. No demo accounts or listings are inserted — real accounts are created through Supabase Auth and real listings through the app.
 
 3. **Configure Environment Variables**:
    - In Supabase Dashboard, go to **Project Settings** -> **API**.
@@ -109,6 +109,29 @@ If listings look "mixed up" between accounts, or the admin audit throws
   stamps every listing with `landlord.userId` (matched from the landlord email),
   and points each landlord profile at their listing.
 
+### Landlord Account Verification (Auditor Tab):
+
+Admins can now approve landlord accounts as **Urios Verified** from the bottom
+**Auditor** tab. Open **Landlord Accounts**, choose a host, and approve the
+account. The badge is account-level, so it applies to every pad the landlord owns.
+
+- New/updated databases: `supabase/full-setup.sql` includes the verification
+  columns automatically.
+- Existing databases: run `supabase/add-landlord-verification.sql` once. It
+  adds `isUriosVerified`, `verificationStatus`, `verifiedAt`, `verifiedBy`, and
+  `verificationNotes`, and normalizes an older integer `isUriosVerified` flag to
+  a real boolean.
+
+### In-App Messaging
+
+The **Messages** tab is a Messenger-style inbox:
+
+- **Direct chats:** any signed-in user can search for another account (landlord, student, or auditor) and start a 1:1 conversation. Starting a chat that already exists reopens it instead of duplicating it.
+- **Group chats:** only landlord accounts can create a group. The landlord who created the group is recorded as its landlord, and only that account can add or remove members. Everyone else sees the member list read-only.
+- **Realtime:** new messages stream in live through Supabase Realtime, with a focus refresh as a fallback. Per-member read markers power the unread badges.
+
+Run `supabase/add-messaging.sql` once in the Supabase **SQL Editor**. It creates the `conversations`, `conversation_members`, and `messages` tables with their RLS policies and membership functions, and adds them to the `supabase_realtime` publication. Membership changes are rejected by the database unless the caller is the group's landlord, so the rule holds even outside this UI.
+
 ### Security & RLS:
 
 The original setup enabled Row Level Security but wrote every policy with
@@ -138,12 +161,14 @@ All database queries are handled directly via the official Supabase Client (`@su
 | `appliances` | Appliance catalog with monthly submeter electrical rates |
 | `users` | Student boarders and verified landlord profiles linked with Supabase Auth |
 | `ocular_visits` | Scheduled visits with student ID and time slot |
-| `chats` | In-app messaging between students and boarding house hosts |
 | `sms_logs` | Audit trail of automated landlord vacancy check-ins |
 | `tenancy` | Official digital tenancy passes, room assignments, and live submeter tracking |
 | `curfew_slips` | Digital curfew exemption slips for hospital/clinical duties |
 | `receipts` | Official verified rent escrow receipts |
 | `saved_properties` | Student bookmarks and saved boarding houses |
+| `conversations` | Direct and group chat threads (group chats are landlord-managed) |
+| `conversation_members` | Chat participants, roles, and per-user read markers |
+| `messages` | Chat messages streamed live through Supabase Realtime |
 
 ---
 
@@ -152,7 +177,7 @@ All database queries are handled directly via the official Supabase Client (`@su
 ```
 serjon/
 ├── src/                                  # Pure Client-Side Supabase-Powered React App
-│   ├── components/                       # UI components (Pads, Tenancy, Filters, Maps, Modals)
+│   ├── components/                       # UI components (Pads, Tenancy, Filters, Maps, Messages, Modals)
 │   ├── context/                          # AuthContext (Supabase Auth Session Management)
 │   ├── lib/                              # supabase.js (createClient with persistSession)
 │   ├── services/                         # api.js (100% direct-to-Supabase query layer)

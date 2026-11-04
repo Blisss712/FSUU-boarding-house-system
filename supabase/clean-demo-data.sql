@@ -6,7 +6,7 @@
 -- Run this once in the Supabase SQL editor. It is safe to re-run.
 --
 -- Demo listings ------------------------------------------------------------
--- Deleting a property cascades to chats, tenancy, saved_properties,
+-- Deleting a property cascades to tenancy, saved_properties,
 -- curfew_slips, receipts and ocular_visits via ON DELETE CASCADE.
 DELETE FROM properties
 WHERE id IN (

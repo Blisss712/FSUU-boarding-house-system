@@ -18,8 +18,7 @@ export default function PropertyCard({
   isSaved,
   onToggleSave,
   allProperties = [],
-  onViewLandlord,
-  onOpenChat
+  onViewLandlord
 }) {
   const {
     id,
@@ -37,6 +36,7 @@ export default function PropertyCard({
 
   // Landlord's choice: walking minutes or commute minutes in the feed.
   const gateDistance = getGateDistance(property);
+  const accountVerified = landlord?.isUriosVerified === true;
   const [showLandlord, setShowLandlord] = useState(false);
 
   return (
@@ -192,11 +192,13 @@ export default function PropertyCard({
                 </div>
                 <div className="min-w-0 text-left">
                   <p className="font-bold text-[13px] text-[#0b1a30] leading-none truncate flex items-center gap-1">
-                    {landlord.name || 'Verified Landlord'}
-                    <BadgeCheck className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    {landlord.name || 'Landlord'}
+                    {accountVerified && (
+                      <BadgeCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                    )}
                   </p>
                   <p className="text-[11px] text-slate-400 font-medium leading-none mt-1 truncate group-hover/landlord:text-blue-600 transition-colors">
-                    {landlord.tag || landlord.experience || 'Verified Host'} · View profile
+                    {accountVerified ? 'Urios Verified Host' : (landlord.tag || landlord.experience || 'Host')} · View profile
                   </p>
                 </div>
               </button>
@@ -220,7 +222,6 @@ export default function PropertyCard({
           currentProperty={property}
           onSelectProperty={onSelectProperty}
           onViewFullProfile={() => onViewLandlord?.(landlord)}
-          onOpenChat={onOpenChat}
           onClose={() => setShowLandlord(false)}
         />
       )}

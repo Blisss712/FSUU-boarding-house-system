@@ -80,6 +80,11 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE,
   "passwordHash" TEXT,
   role TEXT NOT NULL CHECK (role IN ('boarder', 'landlord', 'admin')),
+  "isUriosVerified" BOOLEAN NOT NULL DEFAULT false,
+  "verificationStatus" TEXT NOT NULL DEFAULT 'pending',
+  "verifiedAt" TIMESTAMPTZ,
+  "verifiedBy" TEXT,
+  "verificationNotes" TEXT,
   phone TEXT,
   "avatarInitials" TEXT,
   "propertyId" TEXT REFERENCES properties(id) ON DELETE SET NULL,
@@ -95,6 +100,38 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- If users table already existed with NOT NULL passwordHash, remove the constraint
 ALTER TABLE users ALTER COLUMN "passwordHash" DROP NOT NULL;
+
+-- Landlord account verification (idempotent so older databases pick it up too).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "isUriosVerified" BOOLEAN NOT NULL DEFAULT false;
+
+-- Normalize an integer 0/1 flag from older databases to a real boolean.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+      FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'users'
+       AND column_name = 'isUriosVerified'
+       AND data_type IN ('integer', 'smallint', 'bigint')
+  ) THEN
+    ALTER TABLE users ALTER COLUMN "isUriosVerified" DROP DEFAULT;
+    ALTER TABLE users
+      ALTER COLUMN "isUriosVerified" TYPE BOOLEAN
+      USING ("isUriosVerified" <> 0);
+    ALTER TABLE users ALTER COLUMN "isUriosVerified" SET DEFAULT false;
+  END IF;
+END $$;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "verificationStatus" TEXT NOT NULL DEFAULT 'pending';
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "verifiedAt" TIMESTAMPTZ;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "verifiedBy" TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS "verificationNotes" TEXT;
+ALTER TABLE users DROP CONSTRAINT IF EXISTS users_verification_status_check;
+ALTER TABLE users
+  ADD CONSTRAINT users_verification_status_check
+  CHECK ("verificationStatus" IN ('pending', 'verified', 'rejected'));
+CREATE INDEX IF NOT EXISTS idx_users_landlord_verification
+  ON users (role, "isUriosVerified");
 
 -- Older copies of this schema only allowed ('boarder', 'landlord'), which makes
 -- admin accounts impossible to create. Rebuild the check constraint so it always
@@ -119,17 +156,7 @@ CREATE TABLE IF NOT EXISTS ocular_visits (
   "createdAt" TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. CHATS TABLE
-CREATE TABLE IF NOT EXISTS chats (
-  id TEXT PRIMARY KEY,
-  "propertyId" TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
-  sender TEXT NOT NULL,
-  text TEXT NOT NULL,
-  time TEXT NOT NULL,
-  "createdAt" TIMESTAMPTZ DEFAULT NOW()
-);
-
--- 7. SMS LOGS TABLE
+-- 6. SMS LOGS TABLE
 CREATE TABLE IF NOT EXISTS sms_logs (
   id TEXT PRIMARY KEY,
   "propertyId" TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
@@ -141,7 +168,7 @@ CREATE TABLE IF NOT EXISTS sms_logs (
   "createdAt" TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 8. SAVED PROPERTIES TABLE
+-- 7. SAVED PROPERTIES TABLE
 CREATE TABLE IF NOT EXISTS saved_properties (
   id BIGSERIAL PRIMARY KEY,
   "userId" TEXT NOT NULL,
@@ -150,7 +177,7 @@ CREATE TABLE IF NOT EXISTS saved_properties (
   UNIQUE("userId", "propertyId")
 );
 
--- 9. TENANCY TABLE
+-- 8. TENANCY TABLE
 CREATE TABLE IF NOT EXISTS tenancy (
   id TEXT PRIMARY KEY,
   "userId" TEXT NOT NULL,
@@ -165,7 +192,7 @@ CREATE TABLE IF NOT EXISTS tenancy (
   "isActive" INTEGER DEFAULT 1
 );
 
--- 10. CURFEW SLIPS TABLE
+-- 9. CURFEW SLIPS TABLE
 CREATE TABLE IF NOT EXISTS curfew_slips (
   id TEXT PRIMARY KEY,
   "userId" TEXT NOT NULL,
@@ -185,7 +212,7 @@ CREATE TABLE IF NOT EXISTS curfew_slips (
   "createdAt" TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 11. RECEIPTS TABLE
+-- 10. RECEIPTS TABLE
 CREATE TABLE IF NOT EXISTS receipts (
   id TEXT PRIMARY KEY,
   "userId" TEXT NOT NULL,
@@ -204,7 +231,6 @@ CREATE TABLE IF NOT EXISTS receipts (
 CREATE INDEX IF NOT EXISTS idx_properties_campus ON properties("campusId");
 CREATE INDEX IF NOT EXISTS idx_properties_zone ON properties(zone);
 CREATE INDEX IF NOT EXISTS idx_properties_price ON properties(price);
-CREATE INDEX IF NOT EXISTS idx_chats_property ON chats("propertyId");
 CREATE INDEX IF NOT EXISTS idx_visits_property ON ocular_visits("propertyId");
 CREATE INDEX IF NOT EXISTS idx_saved_user ON saved_properties("userId");
 CREATE INDEX IF NOT EXISTS idx_tenancy_user ON tenancy("userId");
@@ -275,7 +301,6 @@ ALTER TABLE appliances ENABLE ROW LEVEL SECURITY;
 ALTER TABLE properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE users ENABLE ROW LEVEL SECURITY;
 ALTER TABLE ocular_visits ENABLE ROW LEVEL SECURITY;
-ALTER TABLE chats ENABLE ROW LEVEL SECURITY;
 ALTER TABLE sms_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE saved_properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenancy ENABLE ROW LEVEL SECURITY;
@@ -334,17 +359,13 @@ CREATE POLICY "properties_update" ON properties FOR UPDATE
 CREATE POLICY "properties_delete" ON properties FOR DELETE
   USING (COALESCE(landlord->>'userId', '') = COALESCE(auth.uid()::text, '') OR public.is_admin());
 
--- Users: public read (chat/tenant views), owner-only writes
+-- Users: public read (tenant views), owner-only writes
 CREATE POLICY "users_select" ON users FOR SELECT USING (true);
 CREATE POLICY "users_insert" ON users FOR INSERT WITH CHECK (id = auth.uid()::text OR public.is_admin());
 CREATE POLICY "users_update" ON users FOR UPDATE
   USING  (id = auth.uid()::text OR public.is_admin())
   WITH CHECK (id = auth.uid()::text OR public.is_admin());
 CREATE POLICY "users_delete" ON users FOR DELETE USING (public.is_admin());
-
--- Chats: public read, signed-in write (no owner column to scope by)
-CREATE POLICY "chats_select" ON chats FOR SELECT USING (true);
-CREATE POLICY "chats_insert" ON chats FOR INSERT WITH CHECK (COALESCE(auth.jwt()->>'role', '') = 'authenticated');
 
 -- Visits: public read, signed-in insert, owner/landlord update
 CREATE POLICY "visits_select" ON ocular_visits FOR SELECT USING (true);
@@ -394,7 +415,7 @@ CREATE POLICY "receipts_delete" ON receipts FOR DELETE USING ("userId" = auth.ui
 -- NO SEED DATA
 -- ============================================================
 -- This setup intentionally contains no demo listings, demo users, demo
--- chats, demo tenancies, or demo receipts. Real accounts are created through
+-- tenancies, or demo receipts. Real accounts are created through
 -- Supabase Auth (the sign-up form in the app) and real listings are created
 -- by the signed-in landlord from My Listings.
 --

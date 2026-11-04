@@ -1,6 +1,7 @@
 import React from 'react';
-import { X, Phone, MessageCircle, BadgeCheck, Home, Star, MapPin, ArrowRight } from 'lucide-react';
+import { X, Phone, BadgeCheck, Home, Star, MapPin, ArrowRight } from 'lucide-react';
 import { getGateDistance } from '../utils/distance';
+import SocialLinks from './SocialLinks';
 
 /**
  * LandlordProfileSheet
@@ -12,7 +13,6 @@ import { getGateDistance } from '../utils/distance';
  *   currentProperty     — the property this was opened from
  *   onSelectProperty(p) — navigate to a pad
  *   onViewFullProfile() — open the full LandlordProfilePage
- *   onOpenChat(property)— open backend in-app chat modal
  *   onClose()
  */
 export default function LandlordProfileSheet({
@@ -21,11 +21,10 @@ export default function LandlordProfileSheet({
   currentProperty,
   onSelectProperty,
   onViewFullProfile,
-  onOpenChat,
   onClose
 }) {
   const theirPads = allProperties.filter(p => p.landlord?.name === landlord.name);
-  const targetProperty = currentProperty || theirPads[0];
+  const accountVerified = landlord.isUriosVerified === true;
 
   return (
     <div
@@ -64,11 +63,14 @@ export default function LandlordProfileSheet({
             <div>
               <div className="flex items-center gap-1.5 flex-wrap">
                 <h2 className="text-base font-extrabold text-white leading-tight">{landlord.name}</h2>
-                {landlord.verified !== false && (
-                  <BadgeCheck className="w-4 h-4 text-blue-300 shrink-0" />
+                {accountVerified && (
+                  <BadgeCheck className="w-4 h-4 text-emerald-300 shrink-0" />
                 )}
               </div>
               <p className="text-xs text-blue-200 font-medium mt-0.5">{landlord.tag}</p>
+              <p className={`text-[10px] font-bold mt-1 ${accountVerified ? 'text-emerald-300' : 'text-amber-300'}`}>
+                {accountVerified ? '✓ Urios Verified Landlord' : '⏳ Verification pending'}
+              </p>
               <div className="flex items-center gap-3 mt-1.5">
                 <span className="flex items-center gap-1 text-[11px] text-blue-100">
                   <Home className="w-3 h-3" />
@@ -87,39 +89,35 @@ export default function LandlordProfileSheet({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto">
-          {(landlord.phone || targetProperty) && (
+          {landlord.phone && (
             <div className="px-5 py-4 border-b border-slate-100">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Contact & Inquiries</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Contact</p>
               <div className="flex gap-2">
-                {landlord.phone && (
-                  <a
-                    href={`tel:${landlord.phone}`}
-                    className="flex-1 flex items-center gap-3 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
-                  >
-                    <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
-                      <Phone className="w-4 h-4 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-xs font-bold text-slate-800">{landlord.phone}</p>
-                      <p className="text-[10px] text-slate-500">Tap to call</p>
-                    </div>
-                  </a>
-                )}
-                {targetProperty && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onClose();
-                      onOpenChat?.(targetProperty);
-                    }}
-                    className={`${landlord.phone ? 'px-4' : 'flex-1'} flex items-center justify-center gap-2 p-3 rounded-2xl bg-blue-50 border border-blue-200 hover:bg-blue-100 active:scale-[0.99] transition-all cursor-pointer`}
-                    title={`Chat with ${landlord.name || 'Landlord'}`}
-                  >
-                    <MessageCircle className="w-5 h-5 text-blue-600" />
-                    <span className="text-xs font-bold text-blue-700">Chat</span>
-                  </button>
-                )}
+                <a
+                  href={`tel:${landlord.phone}`}
+                  className="flex-1 flex items-center gap-3 p-3 rounded-2xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0">
+                    <Phone className="w-4 h-4 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">{landlord.phone}</p>
+                    <p className="text-[10px] text-slate-500">Tap to call</p>
+                  </div>
+                </a>
               </div>
+            </div>
+          )}
+
+          {(landlord.facebook || landlord.instagram || landlord.twitter) && (
+            <div className="px-5 py-3 border-b border-slate-100">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide mb-2">Socials</p>
+              <SocialLinks
+                facebook={landlord.facebook}
+                instagram={landlord.instagram}
+                twitter={landlord.twitter}
+                variant="chips"
+              />
             </div>
           )}
 

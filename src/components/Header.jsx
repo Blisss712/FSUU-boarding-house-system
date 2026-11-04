@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, SlidersHorizontal, Bell, MapPin, Building2, LogOut, LogIn, UserPlus, X } from 'lucide-react';
-import NotificationsPanel from './NotificationsPanel';
+import { Search, SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X } from 'lucide-react';
 import SearchRecommendationsDropdown from './SearchRecommendationsDropdown';
 
 export default function Header({
@@ -9,9 +8,6 @@ export default function Header({
   openFilterModal,
   activeFilterCount,
   setActiveTab,
-  onOpenMessages,
-  notifications = [],
-  onMarkAllRead,
   // Auth props
   user,
   onLogin,
@@ -22,14 +18,10 @@ export default function Header({
   availableAmenities = [],
   onSelectProperty
 }) {
-  const [showNotifications, setShowNotifications] = useState(false);
-  const bellRef = useRef(null);
   const [showSearchRecs, setShowSearchRecs] = useState(false);
   const [showMobileSearchRecs, setShowMobileSearchRecs] = useState(false);
   const searchContainerRef = useRef(null);
   const mobileSearchContainerRef = useRef(null);
-
-  const unreadCount = notifications.filter(n => !n.read).length;
 
   // Handle click outside & escape key to close recommendation popovers
   useEffect(() => {
@@ -171,34 +163,6 @@ export default function Header({
               </span>
             )}
           </button>
-
-          {/* Notification bell */}
-          <div className="relative" ref={bellRef}>
-            <button
-              onClick={() => setShowNotifications(v => !v)}
-              className="w-9 h-9 rounded-xl flex items-center justify-center text-slate-600 hover:bg-slate-100 transition-colors relative"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4 text-slate-700" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-amber-500 ring-2 ring-white"></span>
-              )}
-            </button>
-
-            {showNotifications && (
-              <NotificationsPanel
-                notifications={notifications}
-                onClose={() => setShowNotifications(false)}
-                onOpenChat={(propertyId) => {
-                  setShowNotifications(false);
-                  onOpenMessages?.(propertyId);
-                }}
-                onMarkAllRead={() => {
-                  onMarkAllRead?.();
-                }}
-              />
-            )}
-          </div>
 
           {/* ── Auth zone ──────────────────────────────────────────── */}
           {user ? (

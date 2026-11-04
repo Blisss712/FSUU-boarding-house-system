@@ -1,23 +1,24 @@
 import React from 'react';
 import { 
   Bookmark, Clock, FileText, Award, Building2, Plus, Minus, 
-  MessageCircle, Share2, MapPin, Eye, Home, Zap, CheckCircle2, XCircle,
+  Share2, MapPin, Eye, Home, Zap, CheckCircle2, XCircle,
   Calendar, ShieldCheck, X, RefreshCw,
-  LogOut, DoorOpen, ChevronRight, Edit3, MessageSquare, Users, Megaphone, UserCheck
+  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck
 } from 'lucide-react';
 import PropertyCard from './PropertyCard';
 import LeaveTenancyModal from './LeaveTenancyModal';
 import PadEditorModal from './PadEditorModal';
 import AdminAuditModal from './AdminAuditModal';
+import LandlordVerificationModal from './LandlordVerificationModal';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import StudentProfileModal from './StudentProfileModal';
 import PadTenantsModal from './PadTenantsModal';
-import PadGroupChatModal from './PadGroupChatModal';
+import SocialLinks from './SocialLinks';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { padHasCurfew } from '../utils/curfew';
 
-export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onOpenChat, onViewLandlord, onOpenAuth }) {
+export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onViewLandlord, onOpenAuth }) {
   const { user } = useAuth();
 
   if (!user) {
@@ -86,7 +87,6 @@ export function SavedView({ savedProperties, allProperties = [], onSelectPropert
             onViewLandlord={onViewLandlord}
             onOpenCostCalc={onOpenCostCalc}
             onOpenWalkPov={onOpenWalkPov}
-            onOpenChat={onOpenChat}
           />
         ))}
       </div>
@@ -97,7 +97,6 @@ export function SavedView({ savedProperties, allProperties = [], onSelectPropert
 export function MyListingsView({
   properties = [],
   onSelectProperty,
-  onOpenChat,
   onOpenParentShare,
   onUpdateAvailability,
   onCreateProperty,
@@ -117,21 +116,17 @@ export function MyListingsView({
   const [applicationsByProperty, setApplicationsByProperty] = React.useState({});
   const [actingApplicationId, setActingApplicationId] = React.useState(null);
 
-  // Pad Tenants and Group Chat state
+  // Pad Tenants state
   const [tenantsByProperty, setTenantsByProperty] = React.useState({});
   const [selectedPropertyForTenants, setSelectedPropertyForTenants] = React.useState(null);
   const [isTenantsModalOpen, setIsTenantsModalOpen] = React.useState(false);
   const [selectedTenantForProfile, setSelectedTenantForProfile] = React.useState(null);
-  const [selectedPropertyForGroupChat, setSelectedPropertyForGroupChat] = React.useState(null);
-  const [isGroupChatModalOpen, setIsGroupChatModalOpen] = React.useState(false);
-  const [latestAnnouncements, setLatestAnnouncements] = React.useState({});
 
   const loadLandlordData = React.useCallback(async () => {
     if (!properties || properties.length === 0) return;
     try {
       const counts = {};
       const tenantsMap = {};
-      const annMap = {};
 
       await Promise.all(
         properties.map(async (p) => {
@@ -148,13 +143,6 @@ export function MyListingsView({
             const tenantsRes = await api.getTenantsByProperty(p.id);
             if (tenantsRes && Array.isArray(tenantsRes.data)) {
               tenantsMap[p.id] = tenantsRes.data;
-            }
-
-            // 3. Latest announcement
-            const grpMessages = await api.getPadGroupMessages(p.id);
-            if (Array.isArray(grpMessages)) {
-              const latestAnn = [...grpMessages].reverse().find(m => m.isAnnouncement || m.text?.startsWith('📢'));
-              if (latestAnn) annMap[p.id] = latestAnn;
             }
           } catch {
             // ignore
@@ -179,7 +167,6 @@ export function MyListingsView({
 
       setPendingCounts(counts);
       setTenantsByProperty(tenantsMap);
-      setLatestAnnouncements(annMap);
     } catch {
       // ignore
     }
@@ -267,17 +254,6 @@ export function MyListingsView({
               <span>Add New Pad</span>
             </button>
 
-            {onOpenChat && (
-              <button
-                type="button"
-                onClick={() => onOpenChat()}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-black shadow-md transition-all shrink-0 cursor-pointer"
-                title="View all student inquiries and reply directly"
-              >
-                <MessageSquare className="w-4 h-4 text-white" />
-                <span>Student Inquiries</span>
-              </button>
-            )}
           </div>
         </div>
 
@@ -585,29 +561,6 @@ export function MyListingsView({
                   </div>
                 )}
 
-                {/* Latest Pad Announcement Bar */}
-                {latestAnnouncements[p.id] && (
-                  <div className="p-2.5 rounded-2xl bg-amber-50/80 border border-amber-200/90 flex items-center justify-between gap-2 text-xs">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <span className="w-2 h-2 rounded-full bg-amber-500 shrink-0 animate-pulse" />
-                      <span className="text-[11px] font-bold text-amber-950 truncate">
-                        {latestAnnouncements[p.id].text}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedPropertyForGroupChat(p);
-                        setIsGroupChatModalOpen(true);
-                      }}
-                      className="px-2.5 py-1 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-[10px] shrink-0 transition-colors cursor-pointer shadow-2xs flex items-center gap-1"
-                    >
-                      <Megaphone className="w-3 h-3" />
-                      <span>Group Chat</span>
-                    </button>
-                  </div>
-                )}
-
                 {/* Pending Curfew Exemption Notice Alert for Landlord */}
                 {padHasCurfew(p) && (pendingCounts[p.id] || 0) > 0 && (
                   <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
@@ -702,31 +655,6 @@ export function MyListingsView({
                     <span>Tenants ({residentCount})</span>
                   </button>
 
-                  {/* Pad Chat Group & Announcements Button */}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedPropertyForGroupChat(p);
-                      setIsGroupChatModalOpen(true);
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-amber-500 hover:bg-amber-400 text-slate-950 transition-all cursor-pointer shadow-2xs"
-                    title="Open Pad Community Chat Group & Broadcast Announcements"
-                  >
-                    <Megaphone className="w-3.5 h-3.5 text-slate-950" />
-                    <span>Pad Chat Group</span>
-                  </button>
-
-                  {onOpenChat && (
-                    <button
-                      type="button"
-                      onClick={() => onOpenChat(p)}
-                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 transition-colors cursor-pointer"
-                    >
-                      <MessageCircle className="w-3.5 h-3.5 text-blue-600" />
-                      <span>Student Chats</span>
-                    </button>
-                  )}
-
                   {onOpenParentShare && (
                     <button
                       type="button"
@@ -785,11 +713,6 @@ export function MyListingsView({
           setIsTenantsModalOpen(false);
           setSelectedPropertyForTenants(null);
         }}
-        onOpenChat={onOpenChat}
-        onOpenGroupChat={(p) => {
-          setSelectedPropertyForGroupChat(p);
-          setIsGroupChatModalOpen(true);
-        }}
       />
 
       {/* Individual Student Profile Modal */}
@@ -798,35 +721,136 @@ export function MyListingsView({
         tenant={selectedTenantForProfile}
         property={selectedPropertyForTenants}
         onClose={() => setSelectedTenantForProfile(null)}
-        onOpenChat={onOpenChat}
-      />
-
-      {/* Pad Group Chat & Announcements Modal */}
-      <PadGroupChatModal
-        isOpen={isGroupChatModalOpen}
-        property={selectedPropertyForGroupChat}
-        onClose={() => {
-          setIsGroupChatModalOpen(false);
-          setSelectedPropertyForGroupChat(null);
-        }}
       />
     </div>
   );
 }
 
+function propertyBelongsToLandlord(property, landlord) {
+  if (!property || !landlord) return false;
+  const owner = property.landlord || {};
+  const same = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+  if (owner.userId && landlord.id && same(owner.userId, landlord.id)) return true;
+  if (owner.email && landlord.email && same(owner.email, landlord.email)) return true;
+  return Boolean(owner.name && landlord.name && same(owner.name, landlord.name));
+}
+
 export function AdminAuditPortalView({
   properties = [],
   onSelectProperty,
-  onUpdateProperty
+  onUpdateProperty,
+  onViewLandlord
 }) {
   const { user } = useAuth();
+  const [viewMode, setViewMode] = React.useState('accounts'); // 'accounts' | 'pads'
   const [filterMode, setFilterMode] = React.useState('all'); // 'all' | 'pending' | 'verified'
   const [search, setSearch] = React.useState('');
   const [selectedAuditProperty, setSelectedAuditProperty] = React.useState(null);
 
+  // Landlord account approvals
+  const [landlords, setLandlords] = React.useState([]);
+  const [loadingLandlords, setLoadingLandlords] = React.useState(true);
+  const [landlordError, setLandlordError] = React.useState('');
+  const [selectedLandlord, setSelectedLandlord] = React.useState(null);
+
+  const loadLandlords = React.useCallback(async () => {
+    setLoadingLandlords(true);
+    setLandlordError('');
+    try {
+      const rows = await api.getLandlords();
+      setLandlords(Array.isArray(rows) ? rows : []);
+    } catch (err) {
+      setLandlords([]);
+      setLandlordError(err.message || 'Could not load landlord accounts.');
+    } finally {
+      setLoadingLandlords(false);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    loadLandlords();
+  }, [loadLandlords]);
+
+  const handleLandlordSaved = (updated) => {
+    if (!updated?.id) return;
+
+    setLandlords(prev => prev.map(item => (item.id === updated.id ? { ...item, ...updated } : item)));
+
+    // Keep the feed's landlord objects in sync so cards and host profiles
+    // immediately show the new Urios Verified state without a full refresh.
+    properties
+      .filter(p => propertyBelongsToLandlord(p, updated))
+      .forEach(p => {
+        onUpdateProperty?.(p.id, {
+          ...p,
+          landlord: {
+            ...p.landlord,
+            isUriosVerified: updated.isUriosVerified,
+            verificationStatus: updated.verificationStatus,
+            verifiedAt: updated.verifiedAt,
+            verifiedBy: updated.verifiedBy,
+            verificationNotes: updated.verificationNotes
+          }
+        });
+      });
+  };
+
+  const openLandlordProfile = (account) => {
+    if (!account) return;
+    const firstProperty = properties.find(p => propertyBelongsToLandlord(p, account)) || null;
+    const initials = account.avatarInitials || (account.name || 'LL')
+      .trim()
+      .split(/\s+/)
+      .map(word => word[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
+
+    onViewLandlord?.({
+      userId: account.id,
+      name: account.name || 'Landlord',
+      initials,
+      avatar: account.avatar || null,
+      email: account.email || null,
+      phone: account.phone || null,
+      tag: 'Landlord Account',
+      isUriosVerified: Boolean(account.isUriosVerified),
+      verificationStatus: account.verificationStatus || (account.isUriosVerified ? 'verified' : 'pending'),
+      verifiedAt: account.verifiedAt || null,
+      verifiedBy: account.verifiedBy || null,
+      verificationNotes: account.verificationNotes || '',
+      facebook: account.facebook || null,
+      instagram: account.instagram || null,
+      twitter: account.twitter || null,
+      experience: 'Landlord'
+    }, firstProperty);
+  };
+
+  const verifiedLandlordCount = landlords.filter(l => Boolean(l.isUriosVerified)).length;
+  const pendingLandlordCount = landlords.length - verifiedLandlordCount;
+  const verifiedPercent = landlords.length > 0
+    ? Math.round((verifiedLandlordCount / landlords.length) * 100)
+    : 0;
+
   const verifiedCount = properties.filter(p => Boolean(p.badges?.isUriosVerified)).length;
   const pendingCount = properties.length - verifiedCount;
-  const verifiedPercent = properties.length > 0 ? Math.round((verifiedCount / properties.length) * 100) : 0;
+  const padVerifiedPercent = properties.length > 0 ? Math.round((verifiedCount / properties.length) * 100) : 0;
+
+  const filteredLandlords = landlords.filter(l => {
+    const isVerified = Boolean(l.isUriosVerified);
+    if (filterMode === 'verified' && !isVerified) return false;
+    if (filterMode === 'pending' && isVerified) return false;
+
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      const matchName = (l.name || '').toLowerCase().includes(q);
+      const matchEmail = (l.email || '').toLowerCase().includes(q);
+      const matchPhone = (l.phone || '').toLowerCase().includes(q);
+      return matchName || matchEmail || matchPhone;
+    }
+    return true;
+  });
 
   const filteredProperties = properties.filter(p => {
     const isVerified = Boolean(p.badges?.isUriosVerified);
@@ -845,6 +869,32 @@ export function AdminAuditPortalView({
 
   return (
     <div className="space-y-6">
+      {/* Mode switch: landlord accounts vs pad audits */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        <button
+          onClick={() => { setViewMode('accounts'); setFilterMode('all'); setSearch(''); }}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+            viewMode === 'accounts'
+              ? 'bg-[#0b1a30] text-white shadow-sm'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-700'
+          }`}
+        >
+          <UserCheck className="w-4 h-4" />
+          Landlord Accounts ({landlords.length})
+        </button>
+        <button
+          onClick={() => { setViewMode('pads'); setFilterMode('all'); setSearch(''); }}
+          className={`px-4 py-2.5 rounded-2xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 ${
+            viewMode === 'pads'
+              ? 'bg-[#0b1a30] text-white shadow-sm'
+              : 'bg-white border border-slate-200 hover:bg-slate-50 text-slate-700'
+          }`}
+        >
+          <Building2 className="w-4 h-4" />
+          Pad Audits ({properties.length})
+        </button>
+      </div>
+
       {/* Header Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-purple-900 via-indigo-900 to-[#0b1a30] text-white shadow-xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -854,10 +904,12 @@ export function AdminAuditPortalView({
               FSUU Student Housing Committee
             </span>
             <h2 className="text-2xl font-black tracking-tight text-white">
-              Student Reality Audit Portal
+              {viewMode === 'accounts' ? 'Landlord Account Verification' : 'Student Reality Audit Portal'}
             </h2>
             <p className="text-xs text-purple-200/90 mt-1 max-w-xl leading-relaxed">
-              Official university administration panel to audit landlord-declared checklists (Building condition rain or shine, Monsoon flooding, Water tanks, Blackouts & Wi-Fi) and certify units with the Urios Student Verified stamp.
+              {viewMode === 'accounts'
+                ? 'Review every landlord account and approve verified hosts with the Urios Verified badge. One approval applies to all of the host\'s listings.'
+                : 'Official university administration panel to audit landlord-declared checklists (Building condition rain or shine, Monsoon flooding, Water tanks, Blackouts & Wi-Fi) and certify units with the Urios Student Verified stamp.'}
             </p>
           </div>
 
@@ -871,16 +923,26 @@ export function AdminAuditPortalView({
         {/* Stats Row */}
         <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/15 text-center">
           <div className="bg-white/10 rounded-2xl p-3">
-            <p className="text-[10px] uppercase font-black tracking-wider text-purple-300">Total Units</p>
-            <p className="text-xl font-black text-white mt-0.5">{properties.length}</p>
+            <p className="text-[10px] uppercase font-black tracking-wider text-purple-300">
+              {viewMode === 'accounts' ? 'Landlord Accounts' : 'Total Units'}
+            </p>
+            <p className="text-xl font-black text-white mt-0.5">
+              {viewMode === 'accounts' ? landlords.length : properties.length}
+            </p>
           </div>
           <div className="bg-white/10 rounded-2xl p-3">
             <p className="text-[10px] uppercase font-black tracking-wider text-emerald-300">Urios Verified</p>
-            <p className="text-xl font-black text-emerald-400 mt-0.5">{verifiedCount} ({verifiedPercent}%)</p>
+            <p className="text-xl font-black text-emerald-400 mt-0.5">
+              {viewMode === 'accounts'
+                ? `${verifiedLandlordCount} (${verifiedPercent}%)`
+                : `${verifiedCount} (${padVerifiedPercent}%)`}
+            </p>
           </div>
           <div className="bg-white/10 rounded-2xl p-3">
             <p className="text-[10px] uppercase font-black tracking-wider text-amber-300">Pending Audit</p>
-            <p className="text-xl font-black text-amber-400 mt-0.5">{pendingCount}</p>
+            <p className="text-xl font-black text-amber-400 mt-0.5">
+              {viewMode === 'accounts' ? pendingLandlordCount : pendingCount}
+            </p>
           </div>
         </div>
       </div>
@@ -896,7 +958,7 @@ export function AdminAuditPortalView({
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            All Pads ({properties.length})
+            All {viewMode === 'accounts' ? 'Landlords' : 'Pads'} ({viewMode === 'accounts' ? landlords.length : properties.length})
           </button>
           <button
             onClick={() => setFilterMode('pending')}
@@ -906,7 +968,7 @@ export function AdminAuditPortalView({
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            ⏳ Pending Audit ({pendingCount})
+            ⏳ Pending ({viewMode === 'accounts' ? pendingLandlordCount : pendingCount})
           </button>
           <button
             onClick={() => setFilterMode('verified')}
@@ -916,7 +978,7 @@ export function AdminAuditPortalView({
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
             }`}
           >
-            ✓ Urios Verified ({verifiedCount})
+            ✓ Urios Verified ({viewMode === 'accounts' ? verifiedLandlordCount : verifiedCount})
           </button>
         </div>
 
@@ -925,117 +987,259 @@ export function AdminAuditPortalView({
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search pad or host..."
+            placeholder={viewMode === 'accounts' ? 'Search host name, email or phone...' : 'Search pad or host...'}
             className="w-full px-3.5 py-2 rounded-2xl bg-slate-50 border border-slate-200 text-xs font-medium text-slate-800 focus:outline-none focus:border-purple-600"
           />
         </div>
       </div>
 
-      {/* Unit Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {filteredProperties.map(p => {
-          const isVerified = Boolean(p.badges?.isUriosVerified);
-          const verifiedItems = p.badges?.verifiedItems || {};
-          const verifiedItemCount = Object.values(verifiedItems).filter(Boolean).length;
+      {viewMode === 'accounts' ? (
+        <>
+          {landlordError && (
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200 text-rose-800 text-xs font-bold">
+              {landlordError}
+              <button
+                type="button"
+                onClick={loadLandlords}
+                className="ml-2 underline font-black cursor-pointer"
+              >
+                Retry
+              </button>
+            </div>
+          )}
 
-          return (
-            <div
-              key={p.id}
-              className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm hover:shadow-md transition-all space-y-4"
-            >
-              <div className="flex items-start gap-4">
-                <img
-                  src={p.images?.[0] || 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=600&q=80'}
-                  alt={p.name}
-                  className="w-24 h-24 rounded-2xl object-cover bg-slate-100 shrink-0 cursor-pointer"
-                  onClick={() => onSelectProperty?.(p)}
-                />
+          {loadingLandlords ? (
+            <div className="p-10 text-center bg-white rounded-3xl border border-slate-200">
+              <RefreshCw className="w-5 h-5 text-purple-600 animate-spin mx-auto mb-2" />
+              <p className="text-xs font-bold text-slate-500">Loading landlord accounts…</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {filteredLandlords.map(l => {
+                const isVerified = Boolean(l.isUriosVerified);
+                const listingCount = properties.filter(p => propertyBelongsToLandlord(p, l)).length;
+                const initials = l.avatarInitials || (l.name || 'LL')
+                  .trim()
+                  .split(/\s+/)
+                  .map(word => word[0])
+                  .join('')
+                  .slice(0, 2)
+                  .toUpperCase();
 
-                <div className="min-w-0 flex-1 space-y-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-2xs ${
-                      isVerified
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-amber-100 text-amber-900 border border-amber-300'
-                    }`}>
-                      {isVerified ? (
-                        <>
-                          <ShieldCheck className="w-3 h-3 text-amber-300 fill-amber-300 shrink-0" />
-                          <span>Urios Verified</span>
-                        </>
-                      ) : (
-                        <span>⏳ Pending Audit</span>
-                      )}
-                    </span>
-                    <span className="text-xs font-black text-slate-900">₱{p.price?.toLocaleString()}/mo</span>
+                return (
+                  <div
+                    key={l.id}
+                    onClick={() => openLandlordProfile(l)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return;
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        openLandlordProfile(l);
+                      }
+                    }}
+                    title={`Open ${l.name || 'landlord'}'s full profile`}
+                    className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm hover:shadow-md hover:border-purple-300 transition-all space-y-4 cursor-pointer"
+                  >
+                    <div className="flex items-start gap-3.5">
+                      <div className={`w-14 h-14 rounded-2xl flex items-center justify-center font-black text-sm shrink-0 ${
+                        isVerified
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-[#0b1a30] text-white'
+                      }`}>
+                        {initials}
+                      </div>
+
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-2xs ${
+                            isVerified
+                              ? 'bg-emerald-600 text-white'
+                              : 'bg-amber-100 text-amber-900 border border-amber-300'
+                          }`}>
+                            {isVerified ? (
+                              <>
+                                <ShieldCheck className="w-3 h-3 text-amber-300 fill-amber-300 shrink-0" />
+                                <span>Urios Verified</span>
+                              </>
+                            ) : (
+                              <span>⏳ Pending Review</span>
+                            )}
+                          </span>
+                          <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2 py-1 rounded-lg shrink-0">
+                            {listingCount} listing{listingCount === 1 ? '' : 's'}
+                          </span>
+                        </div>
+
+                        <h3 className="font-extrabold text-sm text-slate-900 truncate">{l.name || 'Unnamed Landlord'}</h3>
+                        <p className="text-[11px] text-slate-500 font-medium truncate">{l.email || 'No email on file'}</p>
+                        {l.phone && (
+                          <p className="text-[11px] text-slate-500 font-medium truncate">{l.phone}</p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70 text-[11px] flex items-center justify-between gap-2">
+                      <span className="text-slate-500 font-bold">
+                        {isVerified ? 'Approved by' : 'Awaiting admin approval'}
+                      </span>
+                      <span className={`font-black truncate ${isVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {isVerified ? (l.verifiedBy || 'FSUU Housing Committee') : 'No verification yet'}
+                      </span>
+                    </div>
+
+                    <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); openLandlordProfile(l); }}
+                        className="text-[11px] font-black text-purple-700 hover:text-purple-900 hover:underline cursor-pointer"
+                      >
+                        View full profile →
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedLandlord({ landlord: l, listingCount });
+                        }}
+                        className={`px-4 py-2 rounded-xl font-black text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                          isVerified
+                            ? 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            : 'bg-purple-700 hover:bg-purple-800 active:scale-95 text-white'
+                        }`}
+                      >
+                        <ShieldCheck className={`w-3.5 h-3.5 ${isVerified ? 'text-emerald-600' : 'text-purple-200'}`} />
+                        <span>{isVerified ? 'Manage Verification' : 'Approve as Urios Verified'}</span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {!loadingLandlords && filteredLandlords.length === 0 && !landlordError && (
+            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 max-w-sm mx-auto space-y-2">
+              <p className="text-2xl">👤</p>
+              <h4 className="font-extrabold text-sm text-slate-800">No landlord accounts found</h4>
+              <p className="text-xs text-slate-500">
+                {landlords.length === 0
+                  ? 'No landlord has signed up yet. New landlord accounts will appear here automatically.'
+                  : 'Try adjusting your search query or filter selection.'}
+              </p>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Unit Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {filteredProperties.map(p => {
+              const isVerified = Boolean(p.badges?.isUriosVerified);
+              const verifiedItems = p.badges?.verifiedItems || {};
+              const verifiedItemCount = Object.values(verifiedItems).filter(Boolean).length;
+
+              return (
+                <div
+                  key={p.id}
+                  className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-sm hover:shadow-md transition-all space-y-4"
+                >
+                  <div className="flex items-start gap-4">
+                    <img
+                      src={p.images?.[0] || 'https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=600&q=80'}
+                      alt={p.name}
+                      className="w-24 h-24 rounded-2xl object-cover bg-slate-100 shrink-0 cursor-pointer"
+                      onClick={() => onSelectProperty?.(p)}
+                    />
+
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1 shadow-2xs ${
+                          isVerified
+                            ? 'bg-emerald-600 text-white'
+                            : 'bg-amber-100 text-amber-900 border border-amber-300'
+                        }`}>
+                          {isVerified ? (
+                            <>
+                              <ShieldCheck className="w-3 h-3 text-amber-300 fill-amber-300 shrink-0" />
+                              <span>Urios Verified</span>
+                            </>
+                          ) : (
+                            <span>⏳ Pending Audit</span>
+                          )}
+                        </span>
+                        <span className="text-xs font-black text-slate-900">₱{p.price?.toLocaleString()}/mo</span>
+                      </div>
+
+                      <h3
+                        onClick={() => onSelectProperty?.(p)}
+                        className="font-extrabold text-sm text-slate-900 hover:text-purple-800 transition-colors cursor-pointer truncate"
+                      >
+                        {p.name}
+                      </h3>
+
+                      <p className="text-[11px] text-slate-500 font-medium truncate flex items-center gap-1">
+                        <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span>{p.zone} • {p.area}</span>
+                      </p>
+
+                      <p className="text-[11px] text-slate-600 font-semibold truncate">
+                        Landlord: <b className="text-slate-800">{p.landlord?.name || 'Verified Landlord'}</b>
+                      </p>
+                    </div>
                   </div>
 
-                  <h3 
-                    onClick={() => onSelectProperty?.(p)}
-                    className="font-extrabold text-sm text-slate-900 hover:text-purple-800 transition-colors cursor-pointer truncate"
-                  >
-                    {p.name}
-                  </h3>
+                  {/* 6 Checklist Quick Summary */}
+                  <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70 text-[11px] space-y-1.5">
+                    <div className="flex items-center justify-between font-bold">
+                      <span className="text-slate-500 uppercase tracking-wide text-[10px]">Landlord Checklist Claims:</span>
+                      <span className={`font-black ${isVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                        {isVerified ? `${verifiedItemCount}/6 Verified` : 'Needs Physical Check'}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-slate-700">
+                      <span className="truncate">☀️🌧️ {p.buildingCondition?.status || 'Good Condition (Rain/Shine)'}</span>
+                      <span className="truncate">🛡️ {p.floodRating?.isFloodFree ? 'Flood-Safe' : 'Watch Zone'}</span>
+                      <span className="truncate">💧 {p.waterSystem?.hasBoosterPump ? 'Booster Pump' : 'Tap Only'}</span>
+                      <span className="truncate">⚡ {p.powerSystem?.hasSolarBackup ? 'Solar Backup' : 'Grid'}</span>
+                      <span className="truncate">📶 DITO • Smart • Globe</span>
+                      <span className="truncate">🌐 {p.wifiAudit?.hasWifi ? `${p.wifiAudit.downloadMbps} Mbps` : 'No Wi-Fi'}</span>
+                    </div>
+                  </div>
 
-                  <p className="text-[11px] text-slate-500 font-medium truncate flex items-center gap-1">
-                    <MapPin className="w-3 h-3 text-slate-400 shrink-0" />
-                    <span>{p.zone} • {p.area}</span>
-                  </p>
+                  {/* Action Bar */}
+                  <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onSelectProperty?.(p)}
+                      className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
+                    >
+                      View Pad
+                    </button>
 
-                  <p className="text-[11px] text-slate-600 font-semibold truncate">
-                    Landlord: <b className="text-slate-800">{p.landlord?.name || 'Verified Landlord'}</b>
-                  </p>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedAuditProperty(p)}
+                      className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 active:scale-95 text-white font-black text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <ShieldCheck className="w-3.5 h-3.5 text-purple-200" />
+                      <span>{isVerified ? 'Edit Audit Status' : 'Audit & Verify Checklist'}</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              );
+            })}
+          </div>
 
-              {/* 6 Checklist Quick Summary */}
-              <div className="p-3 rounded-2xl bg-slate-50 border border-slate-200/70 text-[11px] space-y-1.5">
-                <div className="flex items-center justify-between font-bold">
-                  <span className="text-slate-500 uppercase tracking-wide text-[10px]">Landlord Checklist Claims:</span>
-                  <span className={`font-black ${isVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
-                    {isVerified ? `${verifiedItemCount}/6 Verified` : 'Needs Physical Check'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-slate-700">
-                  <span className="truncate">☀️🌧️ {p.buildingCondition?.status || 'Good Condition (Rain/Shine)'}</span>
-                  <span className="truncate">🛡️ {p.floodRating?.isFloodFree ? 'Flood-Safe' : 'Watch Zone'}</span>
-                  <span className="truncate">💧 {p.waterSystem?.hasBoosterPump ? 'Booster Pump' : 'Tap Only'}</span>
-                  <span className="truncate">⚡ {p.powerSystem?.hasSolarBackup ? 'Solar Backup' : 'Grid'}</span>
-                  <span className="truncate">📶 DITO • Smart • Globe</span>
-                  <span className="truncate">🌐 {p.wifiAudit?.hasWifi ? `${p.wifiAudit.downloadMbps} Mbps` : 'No Wi-Fi'}</span>
-                </div>
-              </div>
-
-              {/* Action Bar */}
-              <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => onSelectProperty?.(p)}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs transition-colors cursor-pointer"
-                >
-                  View Pad
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setSelectedAuditProperty(p)}
-                  className="px-4 py-2 rounded-xl bg-purple-700 hover:bg-purple-800 active:scale-95 text-white font-black text-xs shadow-md transition-all flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-purple-200" />
-                  <span>{isVerified ? 'Edit Audit Status' : 'Audit & Verify Checklist'}</span>
-                </button>
-              </div>
+          {filteredProperties.length === 0 && (
+            <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 max-w-sm mx-auto space-y-2">
+              <p className="text-2xl">📋</p>
+              <h4 className="font-extrabold text-sm text-slate-800">No properties found</h4>
+              <p className="text-xs text-slate-500">Try adjusting your search query or filter selection.</p>
             </div>
-          );
-        })}
-      </div>
-
-      {filteredProperties.length === 0 && (
-        <div className="p-8 text-center bg-white rounded-3xl border border-slate-200 max-w-sm mx-auto space-y-2">
-          <p className="text-2xl">📋</p>
-          <h4 className="font-extrabold text-sm text-slate-800">No properties found</h4>
-          <p className="text-xs text-slate-500">Try adjusting your search query or filter selection.</p>
-        </div>
+          )}
+        </>
       )}
 
       {/* Admin Audit Modal */}
@@ -1050,6 +1254,15 @@ export function AdminAuditPortalView({
           onClose={() => setSelectedAuditProperty(null)}
         />
       )}
+
+      {/* Landlord Account Verification Modal */}
+      <LandlordVerificationModal
+        isOpen={Boolean(selectedLandlord)}
+        landlord={selectedLandlord?.landlord}
+        listingCount={selectedLandlord?.listingCount || 0}
+        onSave={handleLandlordSaved}
+        onClose={() => setSelectedLandlord(null)}
+      />
     </div>
   );
 }
@@ -1078,22 +1291,6 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
   // Leave tenancy transaction window state
   const [isLeaveModalOpen, setIsLeaveModalOpen] = React.useState(false);
   const [leaveSuccess, setLeaveSuccess] = React.useState('');
-
-  // Pad Group Chat state for student
-  const [isStudentGroupChatOpen, setIsStudentGroupChatOpen] = React.useState(false);
-  const [latestPadAnnouncement, setLatestPadAnnouncement] = React.useState(null);
-
-  React.useEffect(() => {
-    const propId = tenancyData?.tenancy?.propertyId;
-    if (propId) {
-      api.getPadGroupMessages(propId).then(msgs => {
-        if (Array.isArray(msgs)) {
-          const ann = [...msgs].reverse().find(m => m.isAnnouncement || m.text?.startsWith('📢'));
-          if (ann) setLatestPadAnnouncement(ann);
-        }
-      }).catch(() => {});
-    }
-  }, [tenancyData?.tenancy?.propertyId]);
 
   const fetchTenancyData = React.useCallback(async () => {
     if (!user || user.role !== 'boarder') {
@@ -1446,55 +1643,6 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
         </div>
       </div>
 
-      {/* Pad Community & Landlord Announcements Card for Students */}
-      <div className="p-4 rounded-3xl bg-gradient-to-r from-amber-50/90 via-orange-50/60 to-yellow-50/40 border border-amber-200/90 shadow-xs space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-9 h-9 rounded-2xl bg-amber-500 text-slate-950 flex items-center justify-center font-bold shadow-2xs shrink-0">
-              <Megaphone className="w-5 h-5 text-slate-950" />
-            </div>
-            <div>
-              <div className="flex items-center gap-1.5 flex-wrap">
-                <h4 className="font-black text-sm text-amber-950">{tenancy.propertyName} Community</h4>
-                <span className="px-2 py-0.2 rounded-full bg-amber-200 text-amber-950 text-[10px] font-black uppercase">
-                  Pad Group
-                </span>
-              </div>
-              <p className="text-[11px] text-amber-800 mt-0.5">
-                Official notices broadcasted by your host & resident caretaker.
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setIsStudentGroupChatOpen(true)}
-            className="px-4 py-2 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white font-extrabold text-xs transition-all flex items-center justify-center gap-1.5 shadow-xs cursor-pointer shrink-0"
-          >
-            <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-            <span>Open Pad Group Chat</span>
-          </button>
-        </div>
-
-        {/* Latest Announcement Preview */}
-        {latestPadAnnouncement && (
-          <div className="p-3 rounded-2xl bg-white border border-amber-200 shadow-2xs space-y-1 text-xs">
-            <div className="flex items-center justify-between text-[10.5px]">
-              <span className="font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded-md flex items-center gap-1">
-                <Megaphone className="w-3 h-3 text-amber-700" /> Latest Landlord Notice
-              </span>
-              <span className="text-slate-400 font-medium">{latestPadAnnouncement.time}</span>
-            </div>
-            <p className="font-extrabold text-slate-900 mt-1">
-              {latestPadAnnouncement.text?.replace(/^📢\s*(\[[^\]]+\])?\s*/i, '')}
-            </p>
-            <p className="text-[10px] text-slate-500 font-medium">
-              Posted by {latestPadAnnouncement.senderName || 'Landlord Host'}
-            </p>
-          </div>
-        )}
-      </div>
-
       {/* Digital Curfew Pass Slip Section (hidden for pads with no curfew) */}
       {padHasCurfew(property) && (
       <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
@@ -1749,14 +1897,6 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty }) {
         />
       )}
 
-      {/* Pad Group Chat Modal for Student */}
-      {isStudentGroupChatOpen && (
-        <PadGroupChatModal
-          isOpen={isStudentGroupChatOpen}
-          property={property || { id: tenancy.propertyId, name: tenancy.propertyName }}
-          onClose={() => setIsStudentGroupChatOpen(false)}
-        />
-      )}
     </div>
   );
 }
@@ -1782,7 +1922,7 @@ function ProfileField({ label, value, formValue, onChange, placeholder, type = '
   );
 }
 
-export function ProfileView({ onOpenAuth, onOpenChat }) {
+export function ProfileView({ onOpenAuth, onOpenLandlordProfile }) {
   const { user, token, updateUser, logout } = useAuth();
   const [editing, setEditing] = React.useState(false);
   const [saving,  setSaving]  = React.useState(false);
@@ -1791,7 +1931,8 @@ export function ProfileView({ onOpenAuth, onOpenChat }) {
 
   const [form, setForm] = React.useState({
     name: '', phone: '', course: '', yearLevel: '',
-    studentId: '', parentName: '', parentRelation: '', parentPhone: '', parentCity: ''
+    studentId: '', parentName: '', parentRelation: '', parentPhone: '', parentCity: '',
+    facebook: '', instagram: '', twitter: ''
   });
 
   // Sync form when user loads or changes
@@ -1806,7 +1947,10 @@ export function ProfileView({ onOpenAuth, onOpenChat }) {
         parentName:     user.parentName    || '',
         parentRelation: user.parentRelation || '',
         parentPhone:    user.parentPhone   || '',
-        parentCity:     user.parentCity    || ''
+        parentCity:     user.parentCity    || '',
+        facebook:       user.facebook      || '',
+        instagram:      user.instagram     || '',
+        twitter:        user.twitter       || ''
       });
     }
   }, [user]);
@@ -1844,7 +1988,12 @@ export function ProfileView({ onOpenAuth, onOpenChat }) {
     setError('');
     try {
       const updated = await api.updateProfile(token, form);
-      updateUser(updated);
+      const socials = await api.updateSocialLinks({
+        facebook: form.facebook,
+        instagram: form.instagram,
+        twitter: form.twitter
+      });
+      updateUser({ ...updated, ...socials });
       setEditing(false);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -1907,26 +2056,69 @@ export function ProfileView({ onOpenAuth, onOpenChat }) {
         </div>
       </div>
 
-      {/* ── Landlord Direct Chat & Inquiries Quick Card ─────────────────── */}
-      {isLandlord && onOpenChat && (
-        <div className="p-5 rounded-3xl bg-gradient-to-br from-[#0b1a30] to-[#16305a] border border-blue-900/40 text-white shadow-sm flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-2xl bg-blue-500/20 text-blue-300 border border-blue-500/30 flex items-center justify-center shrink-0">
-              <MessageSquare className="w-6 h-6 text-blue-300" />
-            </div>
-            <div>
-              <h4 className="font-extrabold text-sm text-white">Boarder Inquiries & Live Chat</h4>
-              <p className="text-xs text-blue-200 mt-0.5">Direct 1-on-1 messaging with students inquiring about your pads</p>
-            </div>
+      {/* ── Landlord verification status ─────────────────────────── */}
+      {isLandlord && (
+        <div className={`p-4 rounded-3xl border flex items-start gap-3 ${
+          user.isUriosVerified
+            ? 'bg-emerald-50 border-emerald-200'
+            : 'bg-amber-50 border-amber-200'
+        }`}>
+          <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 ${
+            user.isUriosVerified ? 'bg-emerald-600 text-white' : 'bg-amber-500 text-white'
+          }`}>
+            <ShieldCheck className="w-5 h-5" />
           </div>
-          <button
-            type="button"
-            onClick={onOpenChat}
-            className="px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 active:scale-95 text-slate-950 text-xs font-black transition-all shrink-0 cursor-pointer shadow-sm flex items-center gap-1.5"
-          >
-            <MessageSquare className="w-4 h-4 text-slate-950" />
-            <span>Open Inquiries</span>
-          </button>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h4 className={`font-extrabold text-sm ${user.isUriosVerified ? 'text-emerald-900' : 'text-amber-900'}`}>
+                {user.isUriosVerified ? 'Urios Verified Landlord' : 'Verification Pending'}
+              </h4>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${
+                user.isUriosVerified
+                  ? 'bg-emerald-200 text-emerald-900'
+                  : 'bg-amber-200 text-amber-900'
+              }`}>
+                {user.isUriosVerified ? 'APPROVED' : 'AWAITING AUDIT'}
+              </span>
+            </div>
+            <p className={`text-[11px] mt-1 leading-relaxed ${user.isUriosVerified ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {user.isUriosVerified
+                ? `Your host account was approved by ${user.verifiedBy || 'the FSUU Student Housing Committee'}${user.verifiedAt ? ` on ${String(user.verifiedAt).slice(0, 10)}` : ''}. Verified hosts display the Urios Verified badge on their listings.`
+                : 'An FSUU auditor will review your account. Once approved, your listings will display the Urios Verified host badge.'}
+            </p>
+            {user.verificationNotes && (
+              <p className={`text-[11px] mt-1.5 italic ${user.isUriosVerified ? 'text-emerald-700' : 'text-amber-700'}`}>
+                Auditor notes: {user.verificationNotes}
+              </p>
+            )}
+            {onOpenLandlordProfile && (
+              <button
+                type="button"
+                onClick={() => onOpenLandlordProfile({
+                  userId: user.id,
+                  name: user.name,
+                  initials,
+                  avatar: user.avatar || null,
+                  email: user.email,
+                  phone: user.phone || null,
+                  tag: 'Landlord Account',
+                  isUriosVerified: Boolean(user.isUriosVerified),
+                  verificationStatus: user.verificationStatus || (user.isUriosVerified ? 'verified' : 'pending'),
+                  verifiedAt: user.verifiedAt || null,
+                  verifiedBy: user.verifiedBy || null,
+                  verificationNotes: user.verificationNotes || '',
+                  facebook: user.facebook || form.facebook || null,
+                  instagram: user.instagram || form.instagram || null,
+                  twitter: user.twitter || form.twitter || null,
+                  experience: 'Landlord'
+                })}
+                className="mt-3 inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white border border-amber-300 hover:border-amber-400 hover:bg-amber-100/50 text-amber-900 text-xs font-black transition-colors cursor-pointer"
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Submit / update valid ID
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -1948,6 +2140,30 @@ export function ProfileView({ onOpenAuth, onOpenChat }) {
             </>
           )}
         </div>
+
+        <hr className="border-slate-100" />
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h4 className="font-bold text-sm text-slate-900 flex items-center gap-1.5">
+            <Share2 className="w-4 h-4 text-blue-600" />
+            Social Links
+          </h4>
+          <span className="text-[10px] font-bold text-slate-400">
+            {isLandlord ? 'Shown on your public host profile' : 'Shown to your landlord on your tenant profile'}
+          </span>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <ProfileField label="Facebook"  value={user.facebook}  formValue={form.facebook}  onChange={set('facebook')}  placeholder="facebook.com/yourname" editing={editing} />
+          <ProfileField label="Instagram" value={user.instagram} formValue={form.instagram} onChange={set('instagram')} placeholder="instagram.com/yourname" editing={editing} />
+          <ProfileField label="X / Twitter" value={user.twitter} formValue={form.twitter}   onChange={set('twitter')}   placeholder="x.com/yourname" editing={editing} />
+        </div>
+        {!editing && (
+          <SocialLinks
+            facebook={form.facebook}
+            instagram={form.instagram}
+            twitter={form.twitter}
+            variant="chips"
+          />
+        )}
 
         {!isLandlord && (
           <>

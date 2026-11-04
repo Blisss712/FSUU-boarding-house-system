@@ -67,7 +67,50 @@ function publicUser(row) {
     safe.role = 'admin';
     safe.isAdmin = true;
   }
+  if (safe.isUriosVerified !== undefined || safe.verificationStatus !== undefined) {
+    safe.isUriosVerified =
+      Boolean(safe.isUriosVerified) || safe.verificationStatus === 'verified';
+  }
+  if (!safe.verificationStatus) {
+    safe.verificationStatus = safe.isUriosVerified ? 'verified' : 'pending';
+  }
   return safe;
+}
+
+// Columns added by supabase/add-landlord-verification.sql. Querying them on a
+// database that has not run the migration would fail, so all landlord reads
+// fall back to the base profile columns.
+const LANDLORD_VERIFICATION_COLUMNS = [
+  'isUriosVerified',
+  'verificationStatus',
+  'verifiedAt',
+  'verifiedBy',
+  'verificationNotes'
+];
+
+// Public social handles added by supabase/add-social-links.sql.
+const SOCIAL_COLUMNS = ['facebook', 'instagram', 'twitter'];
+
+function socialsOf(row) {
+  if (!row) return { facebook: null, instagram: null, twitter: null };
+  return {
+    facebook: row.facebook || null,
+    instagram: row.instagram || null,
+    twitter: row.twitter || null
+  };
+}
+
+function landlordVerificationOf(row) {
+  if (!row) return null;
+  const isVerified =
+    Boolean(row.isUriosVerified) || row.verificationStatus === 'verified';
+  return {
+    isUriosVerified: isVerified,
+    verificationStatus: row.verificationStatus || (isVerified ? 'verified' : 'pending'),
+    verifiedAt: row.verifiedAt || null,
+    verifiedBy: row.verifiedBy || null,
+    verificationNotes: row.verificationNotes || ''
+  };
 }
 
 async function getUserCandidateIds(authUser) {
@@ -99,9 +142,8 @@ async function getUserCandidateIds(authUser) {
 //   users.propertyId -> last-resort pointer for single-listing landlords
 //
 // EVERY place that decides "is this MY listing?" must route through these
-// helpers so that the My Listings view, the notification poller, and the chat
-// inbox all agree with the database. This is what keeps the landlord hub in
-// sync with Supabase.
+// helpers so that the My Listings view agrees with the database. This is what
+// keeps the landlord hub in sync with Supabase.
 
 function normalizeId(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -114,6 +156,17 @@ function isMissingColumnError(error) {
   if (!error) return false;
   const message = String(error.message || '').toLowerCase();
   return error.code === '42703' || message.includes('does not exist') || message.includes('column');
+}
+
+// Messaging writes fail loudly when supabase/add-messaging.sql has not been
+// run yet; surface that installation step instead of a bare PostgREST error.
+function messagingError(error, fallback = 'Messaging request failed.') {
+  const message = error?.message || fallback;
+  const needsMigration = /does not exist|schema cache|could not find the (table|function)/i.test(message);
+  return new ApiError(
+    needsMigration ? `${message} Run supabase/add-messaging.sql in Supabase first.` : message,
+    500
+  );
 }
 
 // Insert an application row, retrying without `status` when the column is
@@ -206,6 +259,356 @@ export function landlordOwnsProperty(prop, identity) {
 // ─── Pure Supabase API Surface ───────────────────────────────────────────────
 
 export const api = {
+  // ── Landlord account verification ─────────────────────────────────────────
+
+  /**
+   * Builds lookup indexes of landlord account verification records. Used to
+   * decorate every property's `landlord` object with the admin-approved
+   * "Urios Verified" state without mutating the stored JSON.
+   */
+  async _getLandlordVerificationIndex() {
+    const baseColumns = 'id, name, email, role';
+    const withVerification = `${baseColumns}, ${LANDLORD_VERIFICATION_COLUMNS.join(', ')}`;
+    const withEverything = `${withVerification}, ${SOCIAL_COLUMNS.join(', ')}`;
+
+    // Try the full row first (verification + socials), then fall back to
+    // verification-only, then to the original base columns so this keeps
+    // working on projects that have not run the migrations yet.
+    let { data, error } = await supabase
+      .from('users')
+      .select(withEverything)
+      .eq('role', 'landlord');
+
+    if (error && isMissingColumnError(error)) {
+      ({ data, error } = await supabase
+        .from('users')
+        .select(withVerification)
+        .eq('role', 'landlord'));
+    }
+
+    // Backward compatibility for projects that have not run
+    // supabase/add-landlord-verification.sql yet.
+    if (error && isMissingColumnError(error)) {
+      ({ data, error } = await supabase
+        .from('users')
+        .select(baseColumns)
+        .eq('role', 'landlord'));
+    }
+
+    if (error) {
+      console.warn('[Supabase landlord verification index warning]:', error.message);
+      return null;
+    }
+
+    const byId = new Map();
+    const byEmail = new Map();
+    const byName = new Map();
+
+    for (const row of data || []) {
+      const verification = landlordVerificationOf(row);
+      const value = {
+        userId: row.id,
+        email: row.email || null,
+        ...verification,
+        ...socialsOf(row)
+      };
+      if (row.id) byId.set(normalizeId(row.id), value);
+      if (row.email) byEmail.set(normalizeId(row.email), value);
+      if (row.name) byName.set(normalizeId(row.name), value);
+    }
+
+    return { byId, byEmail, byName };
+  },
+
+  async _attachLandlordVerifications(rows = []) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const index = await this._getLandlordVerificationIndex();
+    if (!index) return rows;
+
+    return rows.map(prop => {
+      const landlord = prop?.landlord;
+      if (!landlord) return prop;
+
+      const match =
+        (landlord.userId && index.byId.get(normalizeId(landlord.userId))) ||
+        (landlord.email && index.byEmail.get(normalizeId(landlord.email))) ||
+        (landlord.name && index.byName.get(normalizeId(landlord.name))) ||
+        null;
+
+      if (!match) return prop;
+
+      return {
+        ...prop,
+        landlord: {
+          ...landlord,
+          userId: landlord.userId || match.userId,
+          isUriosVerified: match.isUriosVerified,
+          verificationStatus: match.verificationStatus,
+          verifiedAt: match.verifiedAt,
+          verifiedBy: match.verifiedBy,
+          verificationNotes: match.verificationNotes,
+          facebook: match.facebook || landlord.facebook || null,
+          instagram: match.instagram || landlord.instagram || null,
+          twitter: match.twitter || landlord.twitter || null
+        }
+      };
+    });
+  },
+
+  /**
+   * All landlord accounts, for the Auditor tab. Returns public profile rows
+   * (password hashes removed) including their verification state.
+   */
+  async getLandlords() {
+    // `select('*')` never fails when the optional verification columns have not
+    // been migrated yet; rows simply lack those fields and normalize to pending.
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'landlord');
+
+    if (error) {
+      console.error('[Supabase getLandlords error]:', error.message);
+      throw new ApiError(`Failed to load landlord accounts: ${error.message}`, 500);
+    }
+
+    return (data || [])
+      .map(row => publicUser(row))
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+  },
+
+  /**
+   * Admin-only approval of a landlord account as "Urios Verified".
+   * Updates public.users; RLS `users_update` already allows admins.
+   */
+  async verifyLandlordAccount(userId, auditData = {}) {
+    if (!userId) throw new ApiError('Landlord account id is required.', 400);
+
+    const isVerified = Boolean(auditData.isUriosVerified);
+    const basePayload = {
+      verificationStatus:
+        auditData.verificationStatus || (isVerified ? 'verified' : 'pending'),
+      verifiedAt: isVerified ? (auditData.verifiedAt || new Date().toISOString()) : null,
+      verifiedBy: isVerified
+        ? (auditData.verifiedBy || auditData.auditorName || 'FSUU Housing Committee Admin')
+        : null,
+      verificationNotes: auditData.verificationNotes ?? auditData.auditNotes ?? ''
+    };
+
+    // Older projects created `isUriosVerified` as an integer (0/1). New
+    // projects use boolean. Try the native boolean first, then fall back to
+    // 1/0 only when PostgREST reports a type mismatch for that column.
+    const attempts = [
+      { ...basePayload, isUriosVerified: isVerified },
+      { ...basePayload, isUriosVerified: isVerified ? 1 : 0 }
+    ];
+
+    let lastError = null;
+    for (const payload of attempts) {
+      const { data, error } = await supabase
+        .from('users')
+        .update(payload)
+        .eq('id', userId)
+        .select('*')
+        .maybeSingle();
+
+      if (!error) {
+        if (!data) {
+          throw new ApiError('Landlord account not found or you do not have admin permission.', 404);
+        }
+        return publicUser(data);
+      }
+
+      lastError = error;
+      const isTypeMismatch = /isUriosVerified|boolean|integer|invalid input/i.test(error.message || '');
+      if (!isTypeMismatch) break;
+    }
+
+    const hint = isMissingColumnError(lastError)
+      ? ' Run supabase/add-landlord-verification.sql in Supabase first.'
+      : '';
+    console.error('[Supabase verifyLandlordAccount error]:', lastError?.message);
+    throw new ApiError(
+      `Failed to save landlord verification: ${lastError?.message || 'Unknown error'}.${hint}`,
+      500
+    );
+  },
+
+  // ── Landlord valid ID (private: owner + admin/auditor only) ───────────────
+  //
+  // Rows live in public.landlord_ids and photos in the private
+  // `landlord-ids` storage bucket. RLS in supabase/add-landlord-valid-id.sql
+  // makes them readable ONLY by the owning landlord and admins/auditors.
+
+  async _currentAuthUserId() {
+    try {
+      const { data } = await supabase.auth.getUser();
+      return data?.user?.id ? String(data.user.id) : null;
+    } catch {
+      return null;
+    }
+  },
+
+  async _withLandlordIdImageUrls(row) {
+    if (!row) return null;
+
+    const signedUrlFor = async (path) => {
+      if (!path) return null;
+      try {
+        const { data } = await supabase.storage
+          .from('landlord-ids')
+          .createSignedUrl(path, 60 * 10);
+        return data?.signedUrl || null;
+      } catch {
+        return null;
+      }
+    };
+
+    const [frontImageUrl, backImageUrl] = await Promise.all([
+      signedUrlFor(row.frontImagePath),
+      signedUrlFor(row.backImagePath)
+    ]);
+
+    return { ...row, frontImageUrl, backImageUrl };
+  },
+
+  /**
+   * The valid-ID record for a landlord. RLS only returns it to the landlord
+   * who owns it or to an admin/auditor. Returns null when nothing is on file
+   * (or when supabase/add-landlord-valid-id.sql has not been run yet).
+   */
+  async getLandlordId(userId) {
+    const targetId = userId ? String(userId) : await this._currentAuthUserId();
+    if (!targetId) return null;
+
+    const { data, error } = await supabase
+      .from('landlord_ids')
+      .select('*')
+      .eq('userId', targetId)
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingColumnError(error)) {
+        console.warn('[Supabase getLandlordId] table missing – run supabase/add-landlord-valid-id.sql');
+        return null;
+      }
+      console.warn('[Supabase getLandlordId error]:', error.message);
+      return null;
+    }
+
+    return this._withLandlordIdImageUrls(data);
+  },
+
+  /**
+   * Uploads one ID photo into the private bucket, under the signed-in
+   * landlord's own folder (required by the storage RLS policy).
+   * Returns the storage path to save on the landlord_ids row.
+   */
+  async uploadLandlordIdImage(file, side = 'front') {
+    if (!file) return null;
+
+    const authId = await this._currentAuthUserId();
+    if (!authId) {
+      throw new ApiError('You must be signed in to upload a valid ID.', 401);
+    }
+
+    const safeName = String(file.name || 'id.jpg').replace(/[^a-zA-Z0-9._-]/g, '-');
+    const ext = safeName.includes('.') ? safeName.split('.').pop() : 'jpg';
+    const path = `${authId}/${side}-${Date.now()}.${ext}`;
+
+    const { error } = await supabase.storage
+      .from('landlord-ids')
+      .upload(path, file, {
+        upsert: true,
+        cacheControl: '3600',
+        contentType: file.type || 'image/jpeg'
+      });
+
+    if (error) {
+      const hint = /bucket|not found/i.test(error.message || '')
+        ? ' Run supabase/add-landlord-valid-id.sql in Supabase first.'
+        : '';
+      throw new ApiError(`Could not upload the ID photo: ${error.message}.${hint}`, 500);
+    }
+
+    return path;
+  },
+
+  /**
+   * Creates/updates the signed-in landlord's ID submission. The row is reset
+   * to `pending` so an auditor reviews any new photo or ID number.
+   */
+  async submitLandlordId(data = {}) {
+    const authId = await this._currentAuthUserId();
+    if (!authId) {
+      throw new ApiError('You must be signed in to submit a valid ID.', 401);
+    }
+
+    const userId = data.userId ? String(data.userId) : authId;
+    const idNumber = String(data.idNumber || '').trim();
+    if (!idNumber) {
+      throw new ApiError('Please enter your ID number.', 400);
+    }
+
+    const payload = {
+      userId,
+      fullName: data.fullName?.trim() || null,
+      idType: data.idType?.trim() || 'Philippine National ID (PhilSys)',
+      idNumber,
+      frontImagePath: data.frontImagePath || null,
+      backImagePath: data.backImagePath || null,
+      status: 'pending',
+      submittedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    const { data: row, error } = await supabase
+      .from('landlord_ids')
+      .upsert(payload, { onConflict: 'userId' })
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      const hint = isMissingColumnError(error)
+        ? ' Run supabase/add-landlord-valid-id.sql in Supabase first.'
+        : '';
+      console.error('[Supabase submitLandlordId error]:', error.message);
+      throw new ApiError(`Failed to save your valid ID: ${error.message}.${hint}`, 500);
+    }
+
+    return this._withLandlordIdImageUrls(row);
+  },
+
+  /** Admin/auditor review of a submitted ID. */
+  async reviewLandlordId(userId, review = {}) {
+    if (!userId) throw new ApiError('Landlord account id is required.', 400);
+
+    const status = review.status === 'approved' ? 'approved'
+      : review.status === 'rejected' ? 'rejected'
+      : 'pending';
+
+    const { data, error } = await supabase
+      .from('landlord_ids')
+      .update({
+        status,
+        reviewedAt: new Date().toISOString(),
+        reviewedBy: review.reviewedBy || 'FSUU Housing Committee Admin',
+        reviewNotes: review.reviewNotes || '',
+        updatedAt: new Date().toISOString()
+      })
+      .eq('userId', String(userId))
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Supabase reviewLandlordId error]:', error.message);
+      throw new ApiError(`Failed to update the ID review: ${error.message}`, 500);
+    }
+
+    return this._withLandlordIdImageUrls(data);
+  },
+
   // ── Properties ────────────────────────────────────────────────────────────
 
   async getProperties(params = {}) {
@@ -218,7 +621,7 @@ export const api = {
       throw new ApiError(`Supabase error: ${error.message}`, 500);
     }
 
-    const formatted = (data || []).map(sanitizeRow);
+    const formatted = await this._attachLandlordVerifications((data || []).map(sanitizeRow));
     return this._filterProperties(formatted, params);
   },
 
@@ -454,7 +857,8 @@ export const api = {
       return [];
     }
 
-    return (data || []).map(sanitizeRow).filter(p => landlordOwnsProperty(p, identity));
+    const owned = (data || []).map(sanitizeRow).filter(p => landlordOwnsProperty(p, identity));
+    return this._attachLandlordVerifications(owned);
   },
 
   async getPropertyById(id) {
@@ -469,7 +873,9 @@ export const api = {
       throw new ApiError(`Property not found: ${error.message}`, 404);
     }
 
-    return data ? sanitizeRow(data) : null;
+    if (!data) return null;
+    const [enriched] = await this._attachLandlordVerifications([sanitizeRow(data)]);
+    return enriched || null;
   },
 
   async updateAvailability(id, availableCount, statusTag, statusColor) {
@@ -832,556 +1238,6 @@ export const api = {
       success: true,
       message: 'Ocular visit successfully scheduled and confirmed',
       data: record
-    };
-  },
-
-  // ── Chats (Real-Time Boarder <-> Landlord System) ───────────────────────
-
-  /**
-   * Helper to parse sender JSON or legacy string
-   */
-  _parseSender(rawSender, defaultLandlordName = 'Landlord') {
-    if (!rawSender) {
-      return { role: 'boarder', name: 'Boarder', userId: null, threadUserId: null };
-    }
-    if (typeof rawSender === 'object') {
-      return {
-        role: rawSender.role === 'landlord' ? 'landlord' : 'boarder',
-        name: rawSender.name || (rawSender.role === 'landlord' ? defaultLandlordName : 'Boarder'),
-        userId: rawSender.userId || null,
-        threadUserId: rawSender.threadUserId || rawSender.userId || null,
-        avatarInitials: rawSender.avatarInitials || (rawSender.role === 'landlord' ? 'LL' : 'ST')
-      };
-    }
-    if (typeof rawSender === 'string' && rawSender.startsWith('{')) {
-      try {
-        const obj = JSON.parse(rawSender);
-        return {
-          role: obj.role === 'landlord' ? 'landlord' : 'boarder',
-          name: obj.name || (obj.role === 'landlord' ? defaultLandlordName : 'Boarder'),
-          userId: obj.userId || null,
-          threadUserId: obj.threadUserId || obj.userId || null,
-          avatarInitials: obj.avatarInitials || (obj.role === 'landlord' ? 'LL' : 'ST')
-        };
-      } catch {
-        // Fall through
-      }
-    }
-    const isLandlord = String(rawSender).toLowerCase().includes('landlord');
-    return {
-      role: isLandlord ? 'landlord' : 'boarder',
-      name: isLandlord ? defaultLandlordName : 'Boarder',
-      userId: null,
-      threadUserId: null,
-      avatarInitials: isLandlord ? 'LL' : 'ST'
-    };
-  },
-
-  async getChatHistory(propertyId, threadUserId = null) {
-    const { data, error } = await supabase
-      .from('chats')
-      .select('*')
-      .eq('propertyId', propertyId)
-      .order('createdAt', { ascending: true });
-
-    if (error) {
-      console.error('[Supabase getChatHistory error]:', error.message);
-      return [];
-    }
-
-    const prop = await this.getPropertyById(propertyId);
-    const landlordName = prop?.landlord?.name || 'the Caretaker';
-    const propName = prop?.name || 'our boarding pad';
-
-    // If group chat is requested, use dedicated pad group method with announcements
-    if (threadUserId === 'group') {
-      return this.getPadGroupMessages(propertyId);
-    }
-
-    const defaultWelcome = {
-      id: `chat-init-${propertyId}-${threadUserId || 'direct'}`,
-      propertyId,
-      sender: JSON.stringify({
-        role: 'landlord',
-        name: landlordName,
-        threadUserId: threadUserId || null
-      }),
-      parsedSender: { role: 'landlord', name: landlordName, threadUserId: threadUserId || null },
-      senderRole: 'landlord',
-      senderName: landlordName,
-      text: `Hello! I'm ${landlordName}. Welcome to ${propName}. Feel free to ask any questions about room availability, curfew, or amenities.`,
-      time: '10:15 AM',
-      createdAt: new Date(Date.now() - 86400000).toISOString()
-    };
-
-    if (data && data.length > 0) {
-      // Map and enrich each message
-      const enriched = data.map(m => {
-        const parsed = this._parseSender(m.sender, landlordName);
-        return {
-          ...m,
-          parsedSender: parsed,
-          senderRole: parsed.role,
-          senderName: parsed.name,
-          threadUserId: parsed.threadUserId
-        };
-      });
-
-      // If a specific threadUserId is requested (e.g. student's direct conversation with host)
-      if (threadUserId) {
-        const directList = enriched.filter(m => {
-          // Never leak group messages or announcement broadcasts into direct 1-on-1 host threads
-          if (m.threadUserId === 'group' || m.isAnnouncement || m.text?.startsWith('📢')) return false;
-          if (m.id.startsWith('chat-init-') || m.id === 'chat-001') return true;
-          return m.threadUserId === threadUserId || (m.parsedSender?.userId === threadUserId && m.senderRole === 'boarder');
-        });
-
-        // Ensure host initial welcome greeting is always present at top
-        const hasWelcome = directList.some(m => m.id.startsWith('chat-init-') || m.id === 'chat-001');
-        if (!hasWelcome) {
-          directList.unshift(defaultWelcome);
-        }
-
-        return directList;
-      }
-
-      // If no threadUserId specified (fallback), only return clean greeting
-      return [defaultWelcome];
-    }
-
-    return [defaultWelcome];
-  },
-
-  async sendMessage(propertyId, text, senderParam = 'student', options = {}) {
-    const trimmed = text.trim();
-    if (!trimmed) {
-      throw new ApiError('Message cannot be empty', 400);
-    }
-
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    // Determine sender identity
-    let role = 'boarder';
-    let name = 'Boarder';
-    let userId = null;
-    let threadUserId = options.threadUserId || null;
-    let avatarInitials = 'BD';
-
-    if (typeof senderParam === 'object' && senderParam !== null) {
-      role = senderParam.role === 'landlord' ? 'landlord' : 'boarder';
-      name = senderParam.name || (role === 'landlord' ? 'Landlord' : 'Student Boarder');
-      userId = senderParam.id || senderParam.userId || null;
-      avatarInitials = senderParam.avatarInitials || (name ? name.substring(0, 2).toUpperCase() : 'BD');
-      if (senderParam.threadUserId) threadUserId = senderParam.threadUserId;
-    } else if (typeof senderParam === 'string') {
-      role = (senderParam === 'landlord') ? 'landlord' : 'boarder';
-      if (options.user) {
-        name = options.user.name || (role === 'landlord' ? 'Landlord' : 'Student Boarder');
-        userId = options.user.id || null;
-        avatarInitials = options.user.avatarInitials || (name ? name.substring(0, 2).toUpperCase() : 'BD');
-      }
-    }
-
-    // If boarder and no threadUserId yet, boarder is the thread owner
-    if (role === 'boarder' && !threadUserId) {
-      threadUserId = userId || `guest-${Date.now()}`;
-    }
-
-    const senderPayload = JSON.stringify({
-      role,
-      name,
-      userId,
-      threadUserId,
-      avatarInitials
-    });
-
-    const msgRecord = {
-      id: `msg-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      propertyId,
-      sender: senderPayload,
-      text: trimmed,
-      time: nowTime,
-      createdAt: new Date().toISOString()
-    };
-
-    const { error: sendError } = await supabase.from('chats').insert([msgRecord]);
-    if (sendError) {
-      console.error('[Supabase sendMessage error]:', sendError.message);
-      throw new ApiError(sendError.message, 500);
-    }
-
-    const formattedMessage = {
-      ...msgRecord,
-      parsedSender: { role, name, userId, threadUserId, avatarInitials },
-      senderRole: role,
-      senderName: name,
-      threadUserId
-    };
-
-    return {
-      success: true,
-      data: {
-        sentMessage: formattedMessage
-      }
-    };
-  },
-
-  /**
-   * Fetches all active conversation threads for a user (Boarder or Landlord).
-   * For Landlords: lists all boarders who messaged their properties.
-   * For Boarders: lists all properties/landlords they messaged.
-   */
-  async getConversations(currentUser, allProperties = [], guestId = null) {
-    let props = allProperties;
-    if (!props || props.length === 0) {
-      try {
-        props = await this.getProperties();
-      } catch {
-        props = [];
-      }
-    }
-
-    const isLandlord = currentUser?.role === 'landlord';
-
-    if (isLandlord) {
-      // Find properties owned or managed by this landlord (real DB identity only)
-      const identity = {
-        id: currentUser?.id,
-        email: currentUser?.email,
-        propertyId: currentUser?.propertyId
-      };
-      let landlordProps = props.filter(p => landlordOwnsProperty(p, identity));
-
-      let propIds = landlordProps.map(p => p.id);
-      if (propIds.length === 0 && currentUser.propertyId) {
-        propIds.push(currentUser.propertyId);
-      }
-
-      if (propIds.length === 0) return [];
-
-      const { data } = await supabase
-        .from('chats')
-        .select('*')
-        .in('propertyId', propIds)
-        .order('createdAt', { ascending: true });
-
-      const threadsMap = new Map();
-
-      // First, always register a Pad Group Chat head for each of the landlord's properties
-      for (const prop of landlordProps) {
-        const groupKey = `${prop.id}__group`;
-        const groupMsgs = (data || []).filter(m => 
-          m.propertyId === prop.id && (
-            m.isAnnouncement || 
-            (m.sender && typeof m.sender === 'string' && m.sender.includes('"threadUserId":"group"')) || 
-            (m.text && m.text.startsWith('📢'))
-          )
-        );
-        const latestGroup = groupMsgs[groupMsgs.length - 1];
-
-        threadsMap.set(groupKey, {
-          threadKey: groupKey,
-          propertyId: prop.id,
-          propertyName: prop.name,
-          threadUserId: 'group',
-          isGroupChat: true,
-          type: 'group',
-          title: `${prop.name} (Pad Group)`,
-          boarderName: 'Pad Community & Announcements',
-          landlordName: prop.landlord?.name || currentUser.name || 'Landlord',
-          avatarInitials: '👥',
-          badge: 'Group Chat',
-          lastMessage: latestGroup?.text || '📢 [POWER] ANECO scheduled maintenance this Saturday 8:00 AM - 5:00 PM.',
-          lastTime: latestGroup?.time || '08:30 AM',
-          lastCreatedAt: latestGroup?.createdAt || new Date().toISOString(),
-          messages: groupMsgs
-        });
-      }
-
-      // Next, add individual student inquiries
-      if (data && data.length > 0) {
-        for (const m of data) {
-          if (m.id.startsWith('chat-init-')) continue;
-          const parsed = this._parseSender(m.sender);
-          if (parsed.threadUserId === 'group' || parsed.isAnnouncement || (m.text && m.text.startsWith('📢'))) continue;
-
-          const threadKey = `${m.propertyId}__${parsed.threadUserId || 'inquiry'}`;
-          const prop = landlordProps.find(p => p.id === m.propertyId) || { id: m.propertyId, name: 'Boarding Pad' };
-
-          let thread = threadsMap.get(threadKey);
-          if (!thread) {
-            thread = {
-              threadKey,
-              propertyId: m.propertyId,
-              propertyName: prop.name,
-              threadUserId: parsed.threadUserId || 'inquiry',
-              isGroupChat: false,
-              type: 'student',
-              title: parsed.role === 'boarder' ? parsed.name : 'Inquiring Student',
-              boarderName: parsed.role === 'boarder' ? parsed.name : 'Inquiring Student',
-              avatarInitials: parsed.avatarInitials || (parsed.name ? parsed.name.substring(0, 2).toUpperCase() : 'ST'),
-              badge: 'Student Inquiry',
-              lastMessage: m.text,
-              lastTime: m.time,
-              lastCreatedAt: m.createdAt,
-              lastSenderRole: parsed.role,
-              messages: []
-            };
-            threadsMap.set(threadKey, thread);
-          }
-
-          if (parsed.role === 'boarder' && parsed.name && parsed.name !== 'Boarder') {
-            thread.boarderName = parsed.name;
-            thread.title = parsed.name;
-          }
-
-          thread.lastMessage = m.text;
-          thread.lastTime = m.time;
-          thread.lastCreatedAt = m.createdAt;
-          thread.lastSenderRole = parsed.role;
-          thread.messages.push({
-            ...m,
-            parsedSender: parsed,
-            senderRole: parsed.role,
-            senderName: parsed.name
-          });
-        }
-      }
-
-      return Array.from(threadsMap.values()).sort((a, b) => {
-        if (a.isGroupChat && !b.isGroupChat) return -1;
-        if (!a.isGroupChat && b.isGroupChat) return 1;
-        return new Date(b.lastCreatedAt) - new Date(a.lastCreatedAt);
-      });
-    } else {
-      // Boarder / Student / Guest view:
-      const userId = currentUser?.id || guestId || 'guest-student';
-
-      const { data: allChats } = await supabase
-        .from('chats')
-        .select('*')
-        .order('createdAt', { ascending: true });
-
-      const threadsMap = new Map();
-
-      // Only properties that actually exist in Supabase are considered.
-      const relevantProps = props;
-
-      // Find active tenancy for student / boarder strictly from Supabase DB:
-      let activeTenancyPropIds = new Set();
-
-      if (currentUser?.id) {
-        try {
-          const { data: { user: authUser } } = await supabase.auth.getUser();
-          const candidateIds = await getUserCandidateIds(authUser || currentUser);
-          if (currentUser?.id && !candidateIds.includes(currentUser.id)) {
-            candidateIds.push(currentUser.id);
-          }
-
-          if (candidateIds.length > 0) {
-            const { data: tenancyRows } = await supabase
-              .from('tenancy')
-              .select('*')
-              .in('userId', candidateIds)
-              .eq('isActive', 1)
-              .order('id', { ascending: false });
-
-            if (tenancyRows && tenancyRows.length > 0) {
-              tenancyRows.forEach(t => {
-                if (t.propertyId) activeTenancyPropIds.add(t.propertyId);
-              });
-            }
-          }
-        } catch (err) {
-          console.warn('[getConversations tenancy check exception]:', err.message);
-        }
-      }
-
-      // 1. Pad Group Chat Heads: TIED EXCLUSIVELY to the boarding house (tenant) you are currently boarded in!
-      // If you left the boarding house or are not boarded, activeTenancyPropIds will be empty, so NO pad group appears.
-      // If you are an active tenant in a pad, that boarding house's group chat appears in your messages.
-      for (const propId of activeTenancyPropIds) {
-        const prop = relevantProps.find(p => p.id === propId) || await this.getPropertyById(propId);
-        if (!prop) continue;
-
-        const groupKey = `${prop.id}__group`;
-        const groupMsgs = (allChats || []).filter(m => 
-          m.propertyId === prop.id && (
-            m.isAnnouncement || 
-            (m.sender && typeof m.sender === 'string' && m.sender.includes('"threadUserId":"group"')) || 
-            (m.text && m.text.startsWith('📢'))
-          ) && !m.id.startsWith('chat-init-') && m.id !== 'chat-001'
-        );
-        const latestGroup = groupMsgs[groupMsgs.length - 1];
-
-        threadsMap.set(groupKey, {
-          threadKey: groupKey,
-          propertyId: prop.id,
-          propertyName: prop.name,
-          threadUserId: 'group',
-          isGroupChat: true,
-          type: 'group',
-          title: `${prop.name} (Pad Group)`,
-          landlordName: prop.landlord?.name || 'Host',
-          boarderName: 'My Pad Community & Announcements',
-          avatarInitials: '👥',
-          badge: 'My Pad Group',
-          lastMessage: latestGroup?.text || `Pad group for ${prop.name}`,
-          lastTime: latestGroup?.time || '',
-          lastCreatedAt: latestGroup?.createdAt || null,
-          messages: groupMsgs
-        });
-      }
-
-      // 2. Direct Landlord Chat Heads (only pads the student actually messaged or is boarded in)
-      for (const prop of relevantProps) {
-        const directKey = `${prop.id}__${userId}`;
-        const directMsgs = (allChats || []).filter(m => {
-          if (m.propertyId !== prop.id) return false;
-          const parsed = this._parseSender(m.sender);
-          if (parsed.threadUserId === 'group' || parsed.isAnnouncement || m.text?.startsWith('📢')) return false;
-          // Must match current user's thread
-          const isUserMsg = parsed.threadUserId === userId || (parsed.role === 'boarder' && (parsed.userId === userId || parsed.threadUserId === userId));
-          return isUserMsg;
-        });
-
-        // Do not invent conversation heads for pads with no real messages.
-        if (directMsgs.length === 0 && !activeTenancyPropIds.has(prop.id)) continue;
-
-        const latestDirect = directMsgs[directMsgs.length - 1];
-
-        threadsMap.set(directKey, {
-          threadKey: directKey,
-          propertyId: prop.id,
-          propertyName: prop.name,
-          threadUserId: userId,
-          isGroupChat: false,
-          type: 'landlord',
-          title: prop.landlord?.name || 'Boarding Pad Host',
-          landlordName: prop.landlord?.name || 'Boarding Pad Host',
-          landlordTag: prop.landlord?.tag || 'Verified Urios Host',
-          avatarInitials: prop.landlord?.initials || (prop.landlord?.name ? prop.landlord.name.substring(0, 2).toUpperCase() : 'BH'),
-          avatarImage: prop.landlord?.avatar,
-          badge: 'Host Direct',
-          lastMessage: latestDirect?.text || `Inquire about ${prop.name}.`,
-          lastTime: latestDirect?.time || '',
-          lastCreatedAt: latestDirect?.createdAt || null,
-          messages: directMsgs
-        });
-      }
-
-      return Array.from(threadsMap.values()).sort((a, b) => {
-        if (a.isGroupChat && !b.isGroupChat) return -1;
-        if (!a.isGroupChat && b.isGroupChat) return 1;
-        return new Date(b.lastCreatedAt) - new Date(a.lastCreatedAt);
-      });
-    }
-  },
-
-  // ── Pad Group Chat & Announcements ────────────────────────────────────────
-
-  async getPadGroupMessages(propertyId) {
-    if (!propertyId) return [];
-
-    try {
-      const { data, error } = await supabase
-        .from('chats')
-        .select('*')
-        .eq('propertyId', propertyId)
-        .order('createdAt', { ascending: true });
-
-      if (!error && Array.isArray(data) && data.length > 0) {
-        const prop = await this.getPropertyById(propertyId);
-        const landlordName = prop?.landlord?.name || 'Landlord Host';
-
-        const groupMessages = data
-          .map(m => {
-            const parsed = this._parseSender(m.sender, landlordName);
-            const isAnn = Boolean(
-              parsed.isAnnouncement || 
-              m.isAnnouncement || 
-              (m.text && m.text.startsWith('📢'))
-            );
-            return {
-              ...m,
-              parsedSender: parsed,
-              senderRole: parsed.role,
-              senderName: parsed.name,
-              threadUserId: parsed.threadUserId || (isAnn ? 'group' : null),
-              isAnnouncement: isAnn,
-              announcementCategory: parsed.announcementCategory || 'general'
-            };
-          })
-          .filter(m => 
-            (m.threadUserId === 'group' || m.isAnnouncement || (m.text && m.text.startsWith('📢'))) &&
-            !m.id.startsWith('chat-init-') && m.id !== 'chat-001'
-          );
-
-        return groupMessages;
-      }
-    } catch (err) {
-      console.warn('[Supabase getPadGroupMessages exception]:', err.message);
-    }
-
-    // No real group messages in Supabase yet: show an empty group instead of fake activity.
-    return [];
-  },
-
-  async sendPadGroupMessage(propertyId, rawText, options = {}) {
-    const text = rawText.trim();
-    if (!text) throw new ApiError('Message text required', 400);
-
-    const isAnnouncement = Boolean(options.isAnnouncement);
-    const category = options.announcementCategory || 'general';
-    const user = options.user;
-    const isLandlord = user?.role === 'landlord';
-    const role = isLandlord ? 'landlord' : 'boarder';
-    const name = user?.name || (isLandlord ? 'Landlord Host' : 'Student Boarder');
-    const avatarInitials = user?.avatarInitials || (name ? name.substring(0, 2).toUpperCase() : 'BD');
-    const nowTime = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-    const formattedText = isAnnouncement && !text.startsWith('📢')
-      ? `📢 [${category.toUpperCase()}] ${text}`
-      : text;
-
-    const senderPayload = JSON.stringify({
-      role,
-      name,
-      userId: user?.id || null,
-      threadUserId: 'group',
-      avatarInitials,
-      isAnnouncement,
-      announcementCategory: category
-    });
-
-    const msgRecord = {
-      id: `grp-msg-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
-      propertyId,
-      sender: senderPayload,
-      text: formattedText,
-      time: nowTime,
-      createdAt: new Date().toISOString()
-    };
-
-    try {
-      await supabase.from('chats').insert([msgRecord]);
-    } catch (err) {
-      console.warn('[Supabase sendPadGroupMessage error]:', err.message);
-    }
-
-    const sentMessage = {
-      ...msgRecord,
-      parsedSender: { role, name, userId: user?.id, threadUserId: 'group', avatarInitials, isAnnouncement, announcementCategory: category },
-      senderRole: role,
-      senderName: name,
-      threadUserId: 'group',
-      isAnnouncement,
-      announcementCategory: category
-    };
-
-    return {
-      success: true,
-      data: { sentMessage }
     };
   },
 
@@ -2060,6 +1916,213 @@ export const api = {
     };
   },
 
+  // ── In-App Messaging (direct + landlord-managed group chats) ─────────────
+
+  /** Every other account, for starting a chat or adding group members. */
+  async getMessageContacts() {
+    const identity = await getAuthIdentity();
+    if (!identity) return [];
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, name, email, role, avatarInitials, course, propertyId')
+      .order('name', { ascending: true });
+
+    if (error) throw messagingError(error, 'Could not load contacts.');
+
+    return (data || []).filter(row => String(row.id) !== String(identity.id));
+  },
+
+  /**
+   * Conversations the signed-in user belongs to, with participants, the last
+   * message and an unread count derived from each member's lastReadAt marker.
+   */
+  async getConversations() {
+    const identity = await getAuthIdentity();
+    if (!identity) return [];
+
+    const { data: myMemberships, error: membershipError } = await supabase
+      .from('conversation_members')
+      .select('conversationId, role, lastReadAt')
+      .eq('userId', identity.id);
+
+    if (membershipError) throw messagingError(membershipError, 'Could not load your chats.');
+
+    const conversationIds = Array.from(new Set(
+      (myMemberships || []).map(m => m.conversationId).filter(Boolean)
+    ));
+    if (conversationIds.length === 0) return [];
+
+    const [conversationRes, memberRes, messageRes] = await Promise.all([
+      supabase.from('conversations').select('*').in('id', conversationIds),
+      supabase.from('conversation_members').select('*').in('conversationId', conversationIds),
+      supabase
+        .from('messages')
+        .select('*')
+        .in('conversationId', conversationIds)
+        .order('createdAt', { ascending: false })
+        .limit(400)
+    ]);
+
+    const failure = conversationRes.error || memberRes.error || messageRes.error;
+    if (failure) throw messagingError(failure, 'Could not load your chats.');
+
+    const members = memberRes.data || [];
+    const userIds = Array.from(new Set(members.map(m => m.userId).filter(Boolean)));
+    let usersById = new Map();
+
+    if (userIds.length > 0) {
+      const { data: userRows, error: userError } = await supabase
+        .from('users')
+        .select('id, name, email, role, avatarInitials, course, propertyId')
+        .in('id', userIds);
+
+      if (userError) throw messagingError(userError, 'Could not load chat participants.');
+      usersById = new Map((userRows || []).map(row => [row.id, row]));
+    }
+
+    const membershipByConversation = new Map(
+      (myMemberships || []).map(m => [m.conversationId, m])
+    );
+    const allMessages = messageRes.data || [];
+
+    return (conversationRes.data || [])
+      .map(conv => {
+        const conversationMembers = members
+          .filter(m => m.conversationId === conv.id)
+          .map(m => ({ ...m, user: usersById.get(m.userId) || null }));
+
+        const mine = membershipByConversation.get(conv.id);
+        const conversationMessages = allMessages
+          .filter(m => m.conversationId === conv.id)
+          .sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+
+        const lastRead = mine?.lastReadAt ? new Date(mine.lastReadAt).getTime() : 0;
+        const unreadCount = conversationMessages.filter(m =>
+          m.senderId !== identity.id && new Date(m.createdAt).getTime() > lastRead
+        ).length;
+
+        return {
+          ...conv,
+          members: conversationMembers,
+          otherMembers: conversationMembers.filter(m => m.userId !== identity.id),
+          lastMessage: conversationMessages[conversationMessages.length - 1] || null,
+          unreadCount,
+          myRole: mine?.role || 'member'
+        };
+      })
+      .sort((a, b) => new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0));
+  },
+
+  /** Full message history for one conversation (RLS limits this to members). */
+  async getMessages(conversationId) {
+    if (!conversationId) return [];
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('*')
+      .eq('conversationId', conversationId)
+      .order('createdAt', { ascending: true })
+      .limit(500);
+
+    if (error) throw messagingError(error, 'Could not load messages.');
+    return data || [];
+  },
+
+  /** Send a message as the signed-in user. */
+  async sendMessage(conversationId, body) {
+    const identity = await getAuthIdentity();
+    if (!identity) throw new ApiError('Sign in to send a message.', 401);
+
+    const text = String(body ?? '').trim();
+    if (!conversationId) throw new ApiError('Choose a conversation first.', 400);
+    if (!text) throw new ApiError('Message cannot be empty.', 400);
+    if (text.length > 4000) throw new ApiError('Message is too long (4,000 characters max).', 400);
+
+    const { data, error } = await supabase
+      .from('messages')
+      .insert([{
+        conversationId,
+        senderId: identity.id,
+        body: text
+      }])
+      .select()
+      .maybeSingle();
+
+    if (error) throw messagingError(error, 'Could not send your message.');
+    return data;
+  },
+
+  /** Starts (or reuses) a 1:1 conversation with another account. */
+  async startDirectConversation(otherUserId) {
+    if (!otherUserId) throw new ApiError('Choose someone to message.', 400);
+
+    const { data, error } = await supabase.rpc('start_direct_conversation', {
+      p_user_id: otherUserId
+    });
+
+    if (error) throw messagingError(error, 'Could not start that conversation.');
+    return data;
+  },
+
+  /**
+   * Creates a group chat. The database only allows landlords (and admins) to
+   * create groups, and records the creator as the group's landlord.
+   */
+  async createGroupConversation(title, memberIds = []) {
+    const cleanTitle = String(title || '').trim();
+    const ids = Array.from(new Set((memberIds || []).filter(Boolean)));
+
+    if (!cleanTitle) throw new ApiError('Give the group a name.', 400);
+    if (ids.length === 0) throw new ApiError('Add at least one member to the group.', 400);
+
+    const { data, error } = await supabase.rpc('create_group_conversation', {
+      p_title: cleanTitle,
+      p_member_ids: ids
+    });
+
+    if (error) throw messagingError(error, 'Could not create the group.');
+    return data;
+  },
+
+  /** Adds members — the database rejects this unless the caller is the group's landlord. */
+  async addGroupMembers(conversationId, userIds = []) {
+    const ids = Array.from(new Set((userIds || []).filter(Boolean)));
+    if (!conversationId || ids.length === 0) return 0;
+
+    const { data, error } = await supabase.rpc('add_group_members', {
+      p_conversation_id: conversationId,
+      p_member_ids: ids
+    });
+
+    if (error) throw messagingError(error, 'Could not add members.');
+    return Number(data) || 0;
+  },
+
+  /** Removes a member — the database rejects this unless the caller is the group's landlord. */
+  async removeGroupMember(conversationId, userId) {
+    if (!conversationId || !userId) return false;
+
+    const { data, error } = await supabase.rpc('remove_group_member', {
+      p_conversation_id: conversationId,
+      p_user_id: userId
+    });
+
+    if (error) throw messagingError(error, 'Could not remove that member.');
+    return Boolean(data);
+  },
+
+  /** Marks a conversation read up to now for the signed-in user. */
+  async markConversationRead(conversationId) {
+    if (!conversationId) return;
+
+    const { error } = await supabase.rpc('mark_conversation_read', {
+      p_conversation_id: conversationId
+    });
+
+    if (error) throw messagingError(error, 'Could not update the read marker.');
+  },
+
   // ── Auth (Powered by Supabase Auth) ───────────────────────────────────────
 
   async register({ name, email, password, role, phone }) {
@@ -2237,6 +2300,45 @@ export const api = {
     });
   },
 
+  /**
+   * Saves only the public social handles. Throws a clear error when the
+   * supabase/add-social-links.sql migration has not been applied yet.
+   */
+  async updateSocialLinks(socials = {}) {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new ApiError('Authentication required.', 401);
+
+    const payload = {
+      facebook: String(socials.facebook || '').trim() || null,
+      instagram: String(socials.instagram || '').trim() || null,
+      twitter: String(socials.twitter || '').trim() || null
+    };
+
+    const { data, error } = await supabase
+      .from('users')
+      .update(payload)
+      .eq('id', authUser.id)
+      .select('*')
+      .maybeSingle();
+
+    if (error) {
+      const hint = isMissingColumnError(error)
+        ? ' Run supabase/add-social-links.sql in Supabase first.'
+        : '';
+      console.error('[Supabase updateSocialLinks error]:', error.message);
+      throw new ApiError(`Failed to save social links: ${error.message}.${hint}`, 500);
+    }
+
+    // Keep the auth metadata copy in sync as a fallback for getMe().
+    try {
+      await supabase.auth.updateUser({ data: payload });
+    } catch {
+      // Non-fatal: the public.users row is the source of truth.
+    }
+
+    return publicUser(data || { ...authUser.user_metadata, ...payload });
+  },
+
   async updateProfile(_token, profileData = {}) {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) throw new ApiError('Authentication required.', 401);
@@ -2250,7 +2352,7 @@ export const api = {
     const VALID_USER_COLUMNS = [
       'name', 'phone', 'course', 'yearLevel', 'studentId',
       'parentName', 'parentRelation', 'parentPhone', 'parentCity',
-      'avatarInitials', 'propertyId'
+      'avatarInitials', 'propertyId', 'facebook', 'instagram', 'twitter'
     ];
 
     const safeDbPayload = {};

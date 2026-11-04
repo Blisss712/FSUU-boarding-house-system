@@ -10,15 +10,14 @@ import {
   MapPin, 
   HeartHandshake, 
   ShieldCheck, 
-  MessageCircle
+  Share2
 } from 'lucide-react';
+import SocialLinks from './SocialLinks';
 
 export default function StudentProfileModal({ 
   isOpen, 
   tenant, 
-  property, 
-  onClose, 
-  onOpenChat 
+  onClose 
 }) {
   if (!isOpen || !tenant) return null;
 
@@ -171,6 +170,22 @@ export default function StudentProfileModal({
             </div>
           </div>
 
+          {/* Student Social Profiles */}
+          {(student.facebook || student.instagram || student.twitter) && (
+            <div className="p-3.5 rounded-2xl bg-white border border-slate-200/90 shadow-2xs space-y-2">
+              <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 flex items-center gap-1">
+                <Share2 className="w-3 h-3 text-blue-600" />
+                <span>Social Profiles</span>
+              </span>
+              <SocialLinks
+                facebook={student.facebook}
+                instagram={student.instagram}
+                twitter={student.twitter}
+                variant="chips"
+              />
+            </div>
+          )}
+
           {/* Parent & Emergency Contact Card */}
           <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2.5">
             <div className="flex items-center justify-between">
@@ -220,27 +235,6 @@ export default function StudentProfileModal({
           </div>
 
           <div className="flex items-center gap-2">
-            {onOpenChat && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenChat({
-                    ...property,
-                    targetStudent: {
-                      id: student.id || tenant.userId,
-                      name,
-                      roomNumber
-                    }
-                  });
-                }}
-                className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-xs transition-colors flex items-center gap-1.5 shadow-xs cursor-pointer"
-              >
-                <MessageCircle className="w-3.5 h-3.5" />
-                <span>Message Student</span>
-              </button>
-            )}
-
             <button
               type="button"
               onClick={onClose}

@@ -9,7 +9,6 @@ import {
   Footprints, 
   CloudSun, 
   Star, 
-  MessageCircle, 
   Calendar, 
   Clock, 
   Users, 
@@ -46,7 +45,6 @@ export default function PadDetails({
   onOpenWalkPov, 
   onOpenParentShare, 
   onOpenScheduleVisit, 
-  onOpenChat,
   onViewLandlord,
   allProperties = [],
   onSelectProperty,
@@ -135,11 +133,12 @@ export default function PadDetails({
   };
 
   const landlord = {
-    name: 'Verified Landlord',
+    name: 'Landlord',
     avatar: 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80',
     experience: 'Resident Owner & Caretaker',
     ...rawLandlord
   };
+  const landlordVerified = landlord.isUriosVerified === true;
 
   // Only the owning host may re-pin this pad on the map.
   const isOwner =
@@ -507,7 +506,7 @@ export default function PadDetails({
                     className="w-12 h-12 rounded-full object-cover border-2 border-slate-200 group-hover/landlord:border-blue-600 transition-colors"
                   />
                   <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full bg-blue-600 text-white flex items-center justify-center text-[9px] font-bold">
-                    ✓
+                    {landlordVerified ? '✓' : '?'}
                   </div>
                 </div>
 
@@ -517,8 +516,12 @@ export default function PadDetails({
                       <span>{landlord.name}</span>
                       <span className="text-[11px] text-blue-600 font-semibold hidden sm:inline">• View Host Info →</span>
                     </h4>
-                    <span className="px-1.5 py-0.2 rounded bg-blue-50 text-blue-700 text-[10px] font-bold">
-                      Verified Host
+                    <span className={`px-1.5 py-0.2 rounded text-[10px] font-bold ${
+                      landlordVerified
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : 'bg-amber-50 text-amber-700'
+                    }`}>
+                      {landlordVerified ? 'Urios Verified' : 'Pending Verification'}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 font-medium">{landlord.experience}</p>
@@ -1257,15 +1260,6 @@ export default function PadDetails({
 
                 <button
                   type="button"
-                  onClick={() => onOpenChat(property)}
-                  className="w-full py-2.5 rounded-2xl bg-blue-50 hover:bg-blue-100 text-blue-950 border border-blue-200 text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <MessageCircle className="w-4 h-4 text-blue-700" />
-                  <span>Chat with Landlady {landlord.name}</span>
-                </button>
-
-                <button
-                  type="button"
                   onClick={() => onOpenParentShare(property)}
                   className="w-full py-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors flex items-center justify-center gap-2 cursor-pointer"
                 >
@@ -1310,14 +1304,6 @@ export default function PadDetails({
             )}
             <button
               type="button"
-              onClick={() => onOpenChat(property)}
-              className="p-2.5 rounded-xl bg-blue-50 text-blue-900 border border-blue-200 text-xs font-bold cursor-pointer"
-              title="Chat with host"
-            >
-              <MessageCircle className="w-4 h-4 text-blue-700" />
-            </button>
-            <button
-              type="button"
               onClick={() => onOpenScheduleVisit(property)}
               className="px-3 py-2.5 rounded-xl bg-[#78350f] text-white text-xs font-bold shadow-xs flex items-center gap-1 cursor-pointer"
             >
@@ -1347,7 +1333,6 @@ export default function PadDetails({
             setShowLandlordSheet(false);
             onViewLandlord?.(landlord);
           }}
-          onOpenChat={onOpenChat}
           onClose={() => setShowLandlordSheet(false)}
         />
       )}

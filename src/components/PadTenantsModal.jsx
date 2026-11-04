@@ -11,12 +11,9 @@ import {
   Mail, 
   ChevronRight, 
   GraduationCap, 
-  MessageCircle, 
   User, 
   RefreshCw,
-  MessageSquare,
-  ShieldCheck,
-  Megaphone
+  ShieldCheck
 } from 'lucide-react';
 import StudentProfileModal from './StudentProfileModal';
 import { api } from '../services/api';
@@ -24,9 +21,7 @@ import { api } from '../services/api';
 export default function PadTenantsModal({ 
   isOpen, 
   property, 
-  onClose, 
-  onOpenChat,
-  onOpenGroupChat 
+  onClose 
 }) {
   const [tenants, setTenants] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -97,35 +92,6 @@ export default function PadTenantsModal({
             >
               <X className="w-5 h-5" />
             </button>
-          </div>
-
-          {/* Quick Action & Announcement Banner */}
-          <div className="px-5 py-3 bg-gradient-to-r from-amber-50 to-orange-50 border-b border-amber-200/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 shrink-0">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800 shrink-0">
-                <Megaphone className="w-4 h-4" />
-              </div>
-              <div>
-                <p className="text-xs font-black text-amber-950">Pad Community Chat & Announcements</p>
-                <p className="text-[11px] text-amber-800">
-                  Update all {tenants.length} residents at once regarding power, water, or curfew rules.
-                </p>
-              </div>
-            </div>
-
-            {onOpenGroupChat && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenGroupChat(property);
-                }}
-                className="px-3.5 py-1.5 rounded-xl bg-[#0b1a30] hover:bg-[#1a3a6b] text-white font-extrabold text-xs transition-colors flex items-center justify-center gap-1.5 shadow-2xs cursor-pointer shrink-0"
-              >
-                <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-                <span>Open Pad Chat Group</span>
-              </button>
-            )}
           </div>
 
           {/* Search bar */}
@@ -233,28 +199,6 @@ export default function PadTenantsModal({
                           <span>View Profile</span>
                           <ChevronRight className="w-3 h-3 text-slate-400" />
                         </button>
-
-                        {onOpenChat && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              onClose();
-                              onOpenChat({
-                                ...property,
-                                targetStudent: {
-                                  id: student.id || t.userId,
-                                  name,
-                                  roomNumber
-                                }
-                              });
-                            }}
-                            className="py-1.5 px-3 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-900 border border-blue-200 font-extrabold text-[11px] transition-colors flex items-center gap-1 cursor-pointer"
-                            title={`Send direct message to ${name}`}
-                          >
-                            <MessageCircle className="w-3 h-3 text-blue-600" />
-                            <span>Message</span>
-                          </button>
-                        )}
                       </div>
                     </div>
                   );
@@ -287,9 +231,7 @@ export default function PadTenantsModal({
         <StudentProfileModal
           isOpen={Boolean(selectedTenantForProfile)}
           tenant={selectedTenantForProfile}
-          property={property}
           onClose={() => setSelectedTenantForProfile(null)}
-          onOpenChat={onOpenChat}
         />
       )}
     </>

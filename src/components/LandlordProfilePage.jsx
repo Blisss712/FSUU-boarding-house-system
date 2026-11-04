@@ -1,9 +1,12 @@
 import React from 'react';
 import {
-  ArrowLeft, Phone, MessageCircle, BadgeCheck, Home, Star, MapPin,
+  ArrowLeft, Phone, BadgeCheck, Home, Star, MapPin,
   ShieldCheck, Clock, Award, CheckCircle2
 } from 'lucide-react';
 import { getGateDistance } from '../utils/distance';
+import { useAuth } from '../context/AuthContext';
+import LandlordIdCard from './LandlordIdCard';
+import LandlordSocialCard from './LandlordSocialCard';
 
 /**
  * LandlordProfilePage
@@ -15,7 +18,6 @@ import { getGateDistance } from '../utils/distance';
  *   currentProperty — which property was open when this was triggered
  *   onSelectProperty(p) — navigate to a pad
  *   onBack()        — go back to previous view
- *   onOpenChat(p)   — open backend in-app chat modal
  */
 export default function LandlordProfilePage({
   landlord,
@@ -23,9 +25,31 @@ export default function LandlordProfilePage({
   currentProperty,
   onSelectProperty,
   onBack,
-  onOpenChat
+  onLandlordUpdated
 }) {
-  const theirPads = allProperties.filter(p => p.landlord?.name === landlord.name);
+  const { user } = useAuth();
+
+  const sameText = (a, b) =>
+    String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+
+  const theirPads = allProperties.filter(p => {
+    const owner = p.landlord || {};
+    if (landlord.userId && owner.userId && String(owner.userId) === String(landlord.userId)) return true;
+    if (landlord.email && owner.email && sameText(owner.email, landlord.email)) return true;
+    return Boolean(owner.name && landlord.name && sameText(owner.name, landlord.name));
+  });
+  const accountVerified = landlord.isUriosVerified === true;
+  const verifiedLabel = landlord.verifiedBy || 'FSUU Student Housing Committee';
+  const verifiedDate = landlord.verifiedAt
+    ? String(landlord.verifiedAt).slice(0, 10)
+    : null;
+
+  const isAdmin = user?.role === 'admin' || user?.isAdmin === true;
+  const isOwnProfile = Boolean(user) && (
+    (landlord.userId && String(landlord.userId) === String(user.id)) ||
+    (landlord.email && user.email && sameText(landlord.email, user.email))
+  );
+  const canSeeIdCard = isOwnProfile || isAdmin;
 
   const avgRating = theirPads.length
     ? (theirPads.reduce((s, p) => s + (p.rating || 0), 0) / theirPads.length).toFixed(1)
@@ -37,11 +61,13 @@ export default function LandlordProfilePage({
   // Trust badge definitions
   const trustBadges = [
     {
-      icon: BadgeCheck,
-      color: 'text-blue-600',
-      bg: 'bg-blue-50 border-blue-200',
-      label: 'ID Verified',
-      detail: 'Government-issued ID on file with Balay Urios team.'
+      icon: accountVerified ? BadgeCheck : ShieldCheck,
+      color: accountVerified ? 'text-emerald-600' : 'text-amber-600',
+      bg: accountVerified ? 'bg-emerald-50 border-emerald-200' : 'bg-amber-50 border-amber-200',
+      label: accountVerified ? 'Urios Verified Landlord' : 'Verification Pending',
+      detail: accountVerified
+        ? `Account approved by ${verifiedLabel}${verifiedDate ? ` on ${verifiedDate}` : ''}.`
+        : 'This host account is awaiting review by the FSUU Student Housing Committee.'
     },
     {
       icon: ShieldCheck,
@@ -100,8 +126,16 @@ export default function LandlordProfilePage({
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-xl font-black text-white leading-tight">{landlord.name}</h1>
-              {landlord.verified !== false && (
-                <BadgeCheck className="w-5 h-5 text-blue-300 shrink-0" />
+              {accountVerified ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/20 border border-emerald-400/40 text-[10px] font-black text-emerald-200">
+                  <BadgeCheck className="w-3.5 h-3.5 text-emerald-300 shrink-0" />
+                  Urios Verified
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-500/20 border border-amber-400/40 text-[10px] font-black text-amber-200">
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-300 shrink-0" />
+                  Pending Verification
+                </span>
               )}
             </div>
             <p className="text-sm text-blue-200 mt-0.5">{landlord.tag}</p>
@@ -134,42 +168,32 @@ export default function LandlordProfilePage({
         <div className="max-w-2xl mx-auto px-4 py-5 space-y-5 pb-24">
 
           {/* Contact card */}
-          {(landlord.phone || (onOpenChat && (currentProperty || theirPads[0]))) && (
+          {landlord.phone && (
             <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-2">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Contact & Chat</p>
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Contact</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {landlord.phone && (
-                  <a
-                    href={`tel:${landlord.phone}`}
-                    className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors group"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0 shadow-sm">
-                      <Phone className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-slate-800">{landlord.phone}</p>
-                      <p className="text-xs text-slate-500">Tap to call · 7AM–9PM</p>
-                    </div>
-                  </a>
-                )}
-                {onOpenChat && (currentProperty || theirPads[0]) && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenChat(currentProperty || theirPads[0])}
-                    className="flex items-center gap-3 p-3.5 rounded-2xl bg-blue-50 border border-blue-200 hover:bg-blue-100 active:scale-[0.99] transition-all text-left group cursor-pointer"
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-blue-600 flex items-center justify-center shrink-0 shadow-sm">
-                      <MessageCircle className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                      <p className="text-sm font-bold text-blue-900">Chat with Landlord</p>
-                      <p className="text-xs text-blue-600">Inquire via Balay Urios</p>
-                    </div>
-                  </button>
-                )}
+                <a
+                  href={`tel:${landlord.phone}`}
+                  className="flex items-center gap-3 p-3.5 rounded-2xl bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 transition-colors group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500 flex items-center justify-center shrink-0 shadow-sm">
+                    <Phone className="w-5 h-5 text-white" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-bold text-slate-800">{landlord.phone}</p>
+                    <p className="text-xs text-slate-500">Tap to call · 7AM–9PM</p>
+                  </div>
+                </a>
               </div>
             </div>
           )}
+
+          {/* Social links (visible to all; editable by the host) */}
+          <LandlordSocialCard
+            landlord={landlord}
+            isOwnProfile={isOwnProfile && !isAdmin}
+            onSaved={onLandlordUpdated}
+          />
 
           {/* Trust & safety badges */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs p-4 space-y-3">
@@ -188,6 +212,15 @@ export default function LandlordProfilePage({
               ))}
             </div>
           </div>
+
+          {/* Private valid ID (landlord owner + admins/auditors only) */}
+          {canSeeIdCard && (
+            <LandlordIdCard
+              landlord={landlord}
+              isOwnProfile={isOwnProfile && !isAdmin}
+              isAdmin={isAdmin}
+            />
+          )}
 
           {/* About / policy summary derived from their pads */}
           {theirPads.length > 0 && (

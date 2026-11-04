@@ -7,42 +7,38 @@ export default function BottomNav({
   onOpenMap,
   savedCount,
   user,
-  myListingsCount = 0,
-  onOpenMessages,
-  unreadMessagesCount = 0
+  myListingsCount = 0
 }) {
   const isLandlord = user?.role === 'landlord';
   const isAdmin = user?.role === 'admin' || Boolean(user?.isAdmin);
 
-  // Messages blends into the nav rail as a peer of the tab items
-  const messagesItem = onOpenMessages
-    ? [{
-        key: 'messages',
-        icon: MessageSquare,
-        label: isLandlord ? 'Inquiries' : 'Messages',
-        badge: unreadMessagesCount,
-        onSelect: onOpenMessages,
-      }]
-    : [];
+
+
+  const messagesItem = {
+    key: 'messages',
+    tab: 'messages',
+    icon: MessageSquare,
+    label: 'Messages',
+  };
 
   const navItems = isAdmin
     ? [
         { key: 'explore',  tab: 'explore',  icon: Compass,     label: 'Explore' },
         { key: 'audits',   tab: 'audits',   icon: ShieldCheck, label: 'Auditor' },
-        ...messagesItem,
+        messagesItem,
         { key: 'profile',  tab: 'profile',  icon: User,        label: 'Profile' },
       ]
     : isLandlord
     ? [
         { key: 'explore',  tab: 'explore',  icon: Compass,   label: 'Explore' },
-        ...messagesItem,
+        messagesItem,
         { key: 'listings', tab: 'listings', icon: Building2, label: 'My Listings', badge: myListingsCount },
         { key: 'profile',  tab: 'profile',  icon: User,      label: 'Profile' },
       ]
     : [
         { key: 'explore',  tab: 'explore',  icon: Compass,  label: 'Explore' },
         { key: 'saved',    tab: 'saved',    icon: Bookmark, label: 'Saved', badge: savedCount },
-        ...messagesItem,
+        messagesItem,
         { key: 'myroom',   tab: 'myroom',   icon: Home,     label: 'My Room' },
         { key: 'profile',  tab: 'profile',  icon: User,     label: 'Profile' },
       ];
@@ -89,7 +85,7 @@ export default function BottomNav({
 
                 <div className="relative">
                   <Icon className={`w-5 h-5 lg:w-[21px] lg:h-[21px] transition-all duration-150 ${isActive ? 'stroke-[2.5]' : 'stroke-[1.8]'}`} />
-                  {/* Badge for saved / listings / unread messages */}
+                  {/* Badge for saved / listings */}
                   {badge > 0 && (
                     <span className="absolute -top-1.5 -right-2.5 min-w-4 h-4 px-1 bg-amber-500 text-slate-950 rounded-full text-[9px] font-black flex items-center justify-center ring-2 ring-white">
                       {badge > 99 ? '99+' : badge}
