@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: AI unit + proxy tests (no key, no network)
+        run: npm run test:ai
+
+      - name: Production build
+        run: npm run build
+
+  # Deployment is handled by Vercel's Git integration. If you prefer deploying
+  # from Actions instead, add VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID as
+  # repository secrets and uncomment the job below.
+  #
+  # deploy:
+  #   needs: check
+  #   if: github.ref == 'refs/heads/main'
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #     - uses: actions/setup-node@v4
+  #       with: { node-version: 20 }
+  #     - run: npm ci
+  #     - run: npx vercel@latest deploy --prod --yes --token=${{ secrets.VERCEL_TOKEN }}

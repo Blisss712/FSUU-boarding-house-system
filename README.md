@@ -37,7 +37,7 @@ Built specifically for the student and landlord community of **Father Saturnino 
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
-Ensure you have Node.js (v18+) and npm installed.
+Ensure you have Node.js (v20+) and npm installed.
 
 ### 2. Install Dependencies
 ```bash
@@ -54,6 +54,17 @@ npm run dev
 - Optional: add `GEMINI_API_KEY` to `.env` to switch on the **AI Needs Search**
   (see [AI Student-Needs Search](#ai-student-needs-search-gemini)). Everything
   else works without it.
+
+### 4. Deploy
+
+The repo ships ready for **Vercel** (`vercel.json`, `api/ai-search.js`,
+`api/ai-status.js`) with **Supabase** as the backend. Full step-by-step:
+[DEPLOYMENT.md](DEPLOYMENT.md).
+
+```bash
+npx vercel@latest        # preview deploy
+npx vercel@latest --prod # production
+```
 
 ---
 
