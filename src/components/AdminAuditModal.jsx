@@ -3,7 +3,6 @@ import {
   X, 
   ShieldCheck, 
   Check, 
-  Footprints, 
   CloudSun, 
   Droplets, 
   Zap, 
@@ -15,6 +14,7 @@ import {
   AlertCircle
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getVerifiedItems, normalizeClaim } from '../utils/checklist';
 
 export default function AdminAuditModal({
   isOpen,
@@ -22,20 +22,10 @@ export default function AdminAuditModal({
   onSave,
   onClose
 }) {
-  const currentBadges = property?.badges || {};
-  const currentVerified = Boolean(currentBadges.isUriosVerified);
-  const isConditionVerified = currentBadges.verifiedItems?.goodCondition !== undefined
-    ? Boolean(currentBadges.verifiedItems?.goodCondition)
-    : (currentBadges.verifiedItems?.distance !== undefined ? Boolean(currentBadges.verifiedItems?.distance) : currentVerified);
-
-  const existingItems = {
-    goodCondition: isConditionVerified,
-    flood: currentBadges.verifiedItems?.flood ?? currentVerified,
-    water: currentBadges.verifiedItems?.water ?? currentVerified,
-    power: currentBadges.verifiedItems?.power ?? currentVerified,
-    mobile: currentBadges.verifiedItems?.mobile ?? currentVerified,
-    wifi: currentBadges.verifiedItems?.wifi ?? currentVerified
-  };
+  // Per-item verdicts come from the shared helper so the auditor sees exactly
+  // what the public profile shows (legacy seal-only pads included).
+  const existingItems = getVerifiedItems(property);
+  const currentVerified = Boolean(property?.badges?.isUriosVerified);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -49,22 +39,12 @@ export default function AdminAuditModal({
     if (property) {
       const b = property.badges || {};
       const verified = Boolean(b.isUriosVerified);
-      const isCond = b.verifiedItems?.goodCondition !== undefined
-        ? Boolean(b.verifiedItems?.goodCondition)
-        : (b.verifiedItems?.distance !== undefined ? Boolean(b.verifiedItems?.distance) : verified);
 
       setIsUriosVerified(verified);
       setAuditorName(b.auditorName || 'FSUU Housing Committee Admin');
       setInspectionDate(b.inspectionDate || 'October 2026');
       setAuditNotes(b.auditNotes || '');
-      setVerifiedItems({
-        goodCondition: isCond,
-        flood: b.verifiedItems?.flood ?? verified,
-        water: b.verifiedItems?.water ?? verified,
-        power: b.verifiedItems?.power ?? verified,
-        mobile: b.verifiedItems?.mobile ?? verified,
-        wifi: b.verifiedItems?.wifi ?? verified
-      });
+      setVerifiedItems(getVerifiedItems(property));
     }
   }, [property]);
 
@@ -127,14 +107,16 @@ export default function AdminAuditModal({
     }
   };
 
-  // Landlord declared claims
-  const walkMins = property.gateProximities?.mainSFGate?.walkingMinutes ?? 3;
-  const walkMeters = property.gateProximities?.mainSFGate?.distanceMeters ?? 260;
-  const floodClaim = property.floodRating?.badge || 'Flood-Safe Zone';
-  const waterClaim = property.waterSystem?.badge || '24/7 Stainless Tank & Auto Pump';
-  const powerClaim = property.powerSystem?.badge || 'Solar Emergency Lighting';
-  const wifiClaim = property.wifiAudit?.hasWifi !== false && !property.wifiAudit?.provider?.toLowerCase().includes('none')
-    ? `${property.wifiAudit?.downloadMbps || 85} Mbps (${property.wifiAudit?.provider || 'Fiber'})`
+  // Landlord declared claims. Undeclared items must say so — never borrow a
+  // plausible-looking default that the auditor might certify by mistake.
+  const floodClaim = normalizeClaim(property.floodRating?.badge) || 'Not declared by host';
+  const waterClaim = normalizeClaim(property.waterSystem?.badge) || 'Not declared by host';
+  const powerClaim = normalizeClaim(property.powerSystem?.badge) || 'Not declared by host';
+  const conditionClaim = normalizeClaim(property.buildingCondition?.status) || 'Not declared by host';
+  const hasWifiClaim = property.wifiAudit?.hasWifi !== false &&
+    !/none/i.test(normalizeClaim(property.wifiAudit?.provider));
+  const wifiClaim = hasWifiClaim
+    ? `${Number(property.wifiAudit?.downloadMbps) || '—'} Mbps (${normalizeClaim(property.wifiAudit?.provider) || 'Fiber'})`
     : 'None (No Wi-Fi Provided)';
 
   const checkedCount = Object.values(verifiedItems).filter(Boolean).length;
@@ -251,7 +233,7 @@ export default function AdminAuditModal({
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 mt-0.5">
-                    Landlord Claim: <b className="text-slate-800">{property.buildingCondition?.status || 'Good Condition (Rain or Shine)'} — {property.buildingCondition?.roofCondition || 'Inspected leak-free roof during typhoons, dry covered corridors, and cool ventilation.'}</b>
+                    Landlord Claim: <b className="text-slate-800">{conditionClaim}</b>
                   </p>
                 </div>
               </div>

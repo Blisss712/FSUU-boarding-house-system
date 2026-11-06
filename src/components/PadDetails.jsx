@@ -38,6 +38,7 @@ import PropertyMap from './PropertyMap';
 import { resolveCoordinates, hasExactCoordinates } from '../lib/mapConfig';
 import { padHasCurfew } from '../utils/curfew';
 import { getGateDistance } from '../utils/distance';
+import { getStudentChecklist, normalizeClaim } from '../utils/checklist';
 
 export default function PadDetails({ 
   property, 
@@ -99,10 +100,6 @@ export default function PadDetails({
     reviewCount = 12,
     landlord: rawLandlord = {},
     images: rawImages = [],
-    floodRating: rawFlood = {},
-    waterSystem: rawWater = {},
-    powerSystem: rawPower = {},
-    wifiAudit: rawWifi = {},
     commuteSteps: rawCommute = [],
     amenities: rawAmenities = [],
     rules: rawRules = [],
@@ -111,28 +108,26 @@ export default function PadDetails({
   } = propToUse;
 
   const isUriosVerified = Boolean(badges.isUriosVerified);
-  const auditorName = badges.auditorName || 'FSUU Housing Committee Admin';
-  const inspectionDate = badges.inspectionDate || 'October 2026';
-  const verifiedItems = badges.verifiedItems || {
-    goodCondition: isUriosVerified,
-    flood: isUriosVerified,
-    water: isUriosVerified,
-    power: isUriosVerified,
-    mobile: isUriosVerified,
-    wifi: isUriosVerified
-  };
-  const isConditionVerified = verifiedItems.goodCondition !== undefined 
-    ? Boolean(verifiedItems.goodCondition) 
-    : (verifiedItems.distance !== undefined ? Boolean(verifiedItems.distance) : isUriosVerified);
+  const auditorName = normalizeClaim(badges.auditorName) || 'FSUU Housing Committee Admin';
+  // Only ever show an inspection date the auditor actually recorded.
+  const inspectionDate = normalizeClaim(badges.inspectionDate);
 
-  const buildingCondition = property.buildingCondition || property.badges?.buildingCondition || {
-    status: 'Good Condition (Rain or Shine)',
-    badge: 'Rain or Shine Certified',
-    roofCondition: '100% Leak-Free Metal Roof & Waterproof Sealing',
-    drainage: 'Covered Elevated Walkways & Corridors',
-    ventilation: 'High Ceilings & Heat-Reflecting Insulation',
-    description: 'Audited rain-or-shine: zero roof leaks during heavy monsoon rains, dry common areas, and cool ventilation on hot sunny days.'
-  };
+  // One source of truth for both halves of each checklist item: the host's
+  // declaration AND the auditor's verdict (see utils/checklist.js). Rendering
+  // them separately stops a green "Urios Verified" pill from sitting next to
+  // "Not verified" / "has not been audited yet" claim text.
+  const checklist = getStudentChecklist(propToUse);
+  const {
+    goodCondition: buildingCondition,
+    floodSafe: floodRating,
+    waterSystem,
+    brownoutResilience: powerSystem,
+    mobileData,
+    wifi: wifiAudit,
+    verifiedItems
+  } = checklist;
+  const isConditionVerified = buildingCondition.verified;
+  const auditedCount = Object.values(verifiedItems || {}).filter(Boolean).length;
 
   const landlord = {
     name: 'Landlord',
@@ -160,68 +155,6 @@ export default function PadDetails({
   const safeImages = Array.isArray(rawImages) && rawImages.length > 0
     ? rawImages
     : ['https://images.unsplash.com/photo-1555854877-bab0e564b8d5?auto=format&fit=crop&w=600&q=80'];
-
-  const isNoFloodSafe = rawFlood.isFloodFree === false || 
-                        rawFlood.badge?.toLowerCase().includes('none') || 
-                        rawFlood.badge?.toLowerCase().includes('prone');
-  const floodRating = {
-    isFloodFree: !isNoFloodSafe,
-    badge: rawFlood.badge || (isNoFloodSafe ? 'None (Flood Watch Zone)' : 'Flood-Safe Zone'),
-    tagBadge: rawFlood.tagBadge || (isNoFloodSafe ? 'Flood Watch Zone' : 'Verified Dry'),
-    description: rawFlood.description || (isNoFloodSafe 
-      ? 'Ground-level foundation. Prone to surface water accumulation during severe monsoon surges.' 
-      : 'Elevated foundation with zero recorded typhoon flooding.'),
-    history: rawFlood.history || (isNoFloodSafe 
-      ? 'Prone during monsoon season - boarders advised to keep items elevated.' 
-      : 'Guaranteed dry during heavy rains'),
-    ...rawFlood
-  };
-
-  const isNoWaterBackup = rawWater.badge?.toLowerCase().includes('none') || 
-                          rawWater.badge?.toLowerCase().includes('direct tap') || 
-                          rawWater.tankCapacity?.toLowerCase().includes('none');
-  const waterSystem = {
-    hasBoosterPump: !isNoWaterBackup && (rawWater.hasBoosterPump ?? true),
-    hasReserveTank: !isNoWaterBackup && (rawWater.hasReserveTank ?? true),
-    badge: rawWater.badge || (isNoWaterBackup ? 'None (Direct City Tap Only)' : 'Overhead Tank + Pump'),
-    description: rawWater.description || (isNoWaterBackup 
-      ? 'Direct municipal water supply only. Water pressure may decrease during peak morning rush (6:30-8:00 AM).' 
-      : 'Continuous uninterrupted water pressure with reserve tank.'),
-    tankCapacity: rawWater.tankCapacity || (isNoWaterBackup ? 'None (Direct Tap Only)' : '1,000L Reserve Tank'),
-    ...rawWater
-  };
-
-  const isNoPowerBackup = rawPower.badge?.toLowerCase().includes('none') || 
-                          rawPower.badge?.toLowerCase().includes('no backup') || 
-                          rawPower.badge?.toLowerCase().includes('no generator');
-  const powerSystem = {
-    hasSolarBackup: !isNoPowerBackup && Boolean(rawPower.hasSolarBackup),
-    hasGenerator: !isNoPowerBackup && Boolean(rawPower.hasGenerator),
-    badge: rawPower.badge || (isNoPowerBackup ? 'None (No Backup Power)' : 'Emergency Power Kit'),
-    description: rawPower.description || (isNoPowerBackup 
-      ? 'Standard electric grid connection only with no standby backup generators or solar battery lights.' 
-      : 'Equipped with emergency lighting and backup recharge stations.'),
-    ...rawPower
-  };
-
-  const isNoWifi = rawWifi.hasWifi === false || 
-                   rawWifi.provider?.toLowerCase().includes('none') || 
-                   (rawWifi.downloadMbps !== undefined && Number(rawWifi.downloadMbps) === 0);
-  const wifiAudit = {
-    hasWifi: !isNoWifi,
-    downloadMbps: isNoWifi ? 0 : (Number(rawWifi.downloadMbps) || 85),
-    uploadMbps: isNoWifi ? 0 : (Number(rawWifi.uploadMbps) || 45),
-    provider: isNoWifi ? 'None (No Wi-Fi Provided)' : (rawWifi.provider || 'PLDT Home Fiber'),
-    verifiedDate: rawWifi.verifiedDate || 'April 2026',
-    ratingBadge: isNoWifi ? 'No Wi-Fi Provided' : (rawWifi.ratingBadge || 'Fiber Ready (Fast)'),
-    ...rawWifi,
-    carrierSignals: {
-      globe: '5G (4 Bars)',
-      smart: '5G (Full Bars)',
-      dito: '4G LTE (Solid)',
-      ...(rawWifi?.carrierSignals || {})
-    }
-  };
 
   const commuteSteps = Array.isArray(rawCommute) && rawCommute.length > 0 ? rawCommute : [
     { num: 1, title: 'Gate Exit', desc: 'Exit onto paved student access road' },
@@ -431,17 +364,20 @@ export default function PadDetails({
                         <span>★ URIOS STUDENT VERIFIED HOUSING</span>
                       </p>
                       <span className="px-2 py-0.5 rounded-full bg-amber-400 text-slate-950 font-black text-[10px] tracking-wide">
-                        100% AUDITED
+                        {auditedCount === 6 ? '100% AUDITED' : `${auditedCount}/6 AUDITED`}
                       </span>
                     </div>
                     <p className="text-[11.5px] text-emerald-100 leading-tight mt-0.5 font-medium">
-                      Physically inspected on-site by {auditorName} • Certified {inspectionDate}
+                      Physically inspected on-site by {auditorName}
+                      {inspectionDate ? ` • Certified ${inspectionDate}` : ''}
                     </p>
                   </div>
                 </div>
                 <div className="text-right hidden sm:block">
                   <span className="text-[10px] uppercase font-black tracking-wider text-emerald-200 block">FSUU Housing Seal</span>
-                  <span className="text-[11px] font-bold text-white">Trust Certified</span>
+                  <span className="text-[11px] font-bold text-white">
+                    {auditedCount === 6 ? 'All 6 checks certified' : `${auditedCount}/6 checks certified`}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -463,34 +399,72 @@ export default function PadDetails({
             {/* Quick Checklist Badges Row (6-Point Reality Checklist) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-bold">
               {/* 1. Good Condition (Rain or Shine) */}
-              <div className="p-3 rounded-2xl bg-amber-50 text-amber-900 border border-amber-200 flex items-center gap-2">
-                <CloudSun className="w-4 h-4 text-amber-600 shrink-0" />
-                <span className="truncate">{buildingCondition.status || 'Good Condition (Rain/Shine)'}</span>
+              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${
+                !buildingCondition.declared
+                  ? 'bg-slate-100 text-slate-600 border-slate-200'
+                  : buildingCondition.isGood
+                    ? 'bg-amber-50 text-amber-900 border-amber-200'
+                    : 'bg-rose-50 text-rose-900 border-rose-200'
+              }`}>
+                <CloudSun className={`w-4 h-4 shrink-0 ${buildingCondition.declared ? 'text-amber-600' : 'text-slate-400'}`} />
+                <span className="truncate">{buildingCondition.displayStatus}</span>
               </div>
               {/* 2. Flood */}
-              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${floodRating.isFloodFree ? 'bg-[#f0fdf4] text-[#166534] border-[#bbf7d0]' : 'bg-amber-50 text-amber-900 border-amber-200'}`}>
-                <ShieldCheck className={`w-4 h-4 shrink-0 ${floodRating.isFloodFree ? 'text-emerald-600' : 'text-amber-600'}`} />
-                <span className="truncate">{floodRating.badge}</span>
+              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${
+                !floodRating.declared
+                  ? 'bg-slate-100 text-slate-600 border-slate-200'
+                  : floodRating.isFloodFree
+                    ? 'bg-[#f0fdf4] text-[#166534] border-[#bbf7d0]'
+                    : 'bg-amber-50 text-amber-900 border-amber-200'
+              }`}>
+                <ShieldCheck className={`w-4 h-4 shrink-0 ${
+                  !floodRating.declared ? 'text-slate-400' : floodRating.isFloodFree ? 'text-emerald-600' : 'text-amber-600'
+                }`} />
+                <span className="truncate">{floodRating.displayBadge}</span>
               </div>
               {/* 3. Water */}
-              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${!isNoWaterBackup ? 'bg-sky-50 text-sky-800 border-sky-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                <Droplets className={`w-4 h-4 shrink-0 ${!isNoWaterBackup ? 'text-sky-600' : 'text-slate-400'}`} />
-                <span className="truncate">{waterSystem.badge}</span>
+              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${
+                waterSystem.hasTank || waterSystem.hasBooster
+                  ? 'bg-sky-50 text-sky-800 border-sky-200'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}>
+                <Droplets className={`w-4 h-4 shrink-0 ${
+                  waterSystem.hasTank || waterSystem.hasBooster ? 'text-sky-600' : 'text-slate-400'
+                }`} />
+                <span className="truncate">{waterSystem.displayBadge}</span>
               </div>
               {/* 4. Power */}
-              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${!isNoPowerBackup ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
-                <Zap className={`w-4 h-4 shrink-0 ${!isNoPowerBackup ? 'text-amber-600 fill-amber-600' : 'text-slate-400'}`} />
-                <span className="truncate">{powerSystem.badge}</span>
+              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${
+                powerSystem.hasBackup
+                  ? 'bg-[#fffbeb] text-[#92400e] border-[#fde68a]'
+                  : 'bg-slate-100 text-slate-700 border-slate-200'
+              }`}>
+                <Zap className={`w-4 h-4 shrink-0 ${
+                  powerSystem.hasBackup ? 'text-amber-600 fill-amber-600' : 'text-slate-400'
+                }`} />
+                <span className="truncate">{powerSystem.displayBadge}</span>
               </div>
               {/* 5. Mobile Data */}
-              <div className="p-3 rounded-2xl bg-purple-50 text-purple-900 border border-purple-200 flex items-center gap-2">
-                <Signal className="w-4 h-4 text-purple-600 shrink-0" />
-                <span className="truncate">DITO • Smart • Globe</span>
+              <div className={`p-3 rounded-2xl border flex items-center gap-2 ${
+                mobileData.declared
+                  ? 'bg-purple-50 text-purple-900 border-purple-200'
+                  : 'bg-slate-100 text-slate-600 border-slate-200'
+              }`}>
+                <Signal className={`w-4 h-4 shrink-0 ${mobileData.declared ? 'text-purple-600' : 'text-slate-400'}`} />
+                <span className="truncate">
+                  {mobileData.declared ? `DITO • Smart • Globe (${mobileData.carrierCount}/3)` : 'Mobile signal not measured'}
+                </span>
               </div>
               {/* 6. Wi-Fi */}
               <div className={`p-3 rounded-2xl border flex items-center gap-2 ${wifiAudit.hasWifi ? 'bg-indigo-50 text-indigo-900 border-indigo-200' : 'bg-slate-100 text-slate-600 border-slate-200'}`}>
                 <Wifi className={`w-4 h-4 shrink-0 ${wifiAudit.hasWifi ? 'text-indigo-600' : 'text-slate-400'}`} />
-                <span className="truncate">{wifiAudit.hasWifi ? `${wifiAudit.downloadMbps} Mbps Fiber` : 'No Wi-Fi'}</span>
+                <span className="truncate">
+                  {!wifiAudit.declared
+                    ? 'Wi-Fi not declared'
+                    : wifiAudit.hasWifi
+                      ? (wifiAudit.downloadMbps > 0 ? `${wifiAudit.downloadMbps} Mbps Fiber` : 'Wi-Fi provided')
+                      : 'No Wi-Fi'}
+                </span>
               </div>
             </div>
 
@@ -710,7 +684,9 @@ export default function PadDetails({
                     {isUriosVerified ? (
                       <>
                         <ShieldCheck className="w-4 h-4 text-amber-300 fill-amber-300 shrink-0 drop-shadow-2xs" />
-                        <span>★ URIOS STUDENT VERIFIED ({inspectionDate})</span>
+                        <span>
+                          ★ URIOS STUDENT VERIFIED{inspectionDate ? ` (${inspectionDate})` : ''}
+                        </span>
                       </>
                     ) : (
                       <>
@@ -735,8 +711,8 @@ export default function PadDetails({
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-bold shrink-0">
-                      <CloudSun className="w-4 h-4 text-amber-600" />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${buildingCondition.isGood ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <CloudSun className={`w-4 h-4 ${buildingCondition.isGood ? 'text-amber-600' : 'text-slate-400'}`} />
                     </div>
                     <div>
                       <h4 className="font-extrabold text-sm text-[#0b1a30]">1. Good Condition (Rain or Shine)</h4>
@@ -753,33 +729,48 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{buildingCondition.declared ? 'Claimed' : 'Not declared'}</span>
                       )}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-amber-50 text-amber-800 text-[11px] font-extrabold border border-amber-200">
-                      {buildingCondition.badge || 'Rain or Shine Certified'}
+                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold border ${
+                      buildingCondition.declared
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : 'bg-slate-100 text-slate-600 border-slate-200'
+                    }`}>
+                      {buildingCondition.claimLabel}
                     </span>
                   </div>
                 </div>
                 <div className="ml-10 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50/50 to-amber-50/30 p-3.5 border border-amber-200/80 space-y-2">
                   <div className="flex items-center gap-2 text-xs font-bold text-amber-950">
                     <span className="px-2 py-0.5 rounded-full bg-amber-600 text-white text-[10px] font-black shadow-2xs">
-                      STRUCTURE AUDIT
+                      {isConditionVerified ? 'STRUCTURE AUDIT' : 'STRUCTURE DECLARATION'}
                     </span>
-                    <span>{buildingCondition.description}</span>
+                    <span>
+                      {buildingCondition.description
+                        || (buildingCondition.declared
+                          ? 'The host declared the condition above without extra structural notes.'
+                          : 'The host has not declared the building condition yet.')}
+                    </span>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
                     <div className="p-2 rounded-xl bg-white/90 border border-amber-100">
                       <p className="text-[10px] uppercase font-black text-amber-800">Roof & Ceiling</p>
-                      <p className="font-bold text-slate-800">{buildingCondition.roofCondition}</p>
+                      <p className={`font-bold ${buildingCondition.roofCondition ? 'text-slate-800' : 'text-slate-400'}`}>
+                        {buildingCondition.roofCondition || 'Not declared'}
+                      </p>
                     </div>
                     <div className="p-2 rounded-xl bg-white/90 border border-amber-100">
                       <p className="text-[10px] uppercase font-black text-amber-800">Monsoon Rain</p>
-                      <p className="font-bold text-slate-800">{buildingCondition.drainage}</p>
+                      <p className={`font-bold ${buildingCondition.drainage ? 'text-slate-800' : 'text-slate-400'}`}>
+                        {buildingCondition.drainage || 'Not declared'}
+                      </p>
                     </div>
                     <div className="p-2 rounded-xl bg-white/90 border border-amber-100">
                       <p className="text-[10px] uppercase font-black text-amber-800">Sunny Heat</p>
-                      <p className="font-bold text-slate-800">{buildingCondition.ventilation}</p>
+                      <p className={`font-bold ${buildingCondition.ventilation ? 'text-slate-800' : 'text-slate-400'}`}>
+                        {buildingCondition.ventilation || 'Not declared'}
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -807,29 +798,40 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{floodRating.declared ? 'Claimed' : 'Not declared'}</span>
                       )}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${floodRating.isFloodFree ? 'bg-[#dcfce7] text-[#166534]' : 'bg-[#fef3c7] text-[#92400e]'}`}>
-                      {floodRating.tagBadge}
+                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${
+                      !floodRating.declared
+                        ? 'bg-slate-100 text-slate-600'
+                        : floodRating.isFloodFree
+                          ? 'bg-[#dcfce7] text-[#166534]'
+                          : 'bg-[#fef3c7] text-[#92400e]'
+                    }`}>
+                      {floodRating.claimLabel}
                     </span>
                   </div>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pl-10">
-                  {floodRating.description}
+                  {floodRating.description
+                    || (floodRating.declared
+                      ? 'Declared by the host; awaiting an independent elevation check.'
+                      : 'The host has not declared this pad’s flood history yet.')}
                 </p>
-                <div className="ml-10 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-600 flex items-center gap-2 font-medium">
-                  <Clock className="w-4 h-4 text-blue-600 shrink-0" />
-                  <span>{floodRating.history}</span>
-                </div>
+                {floodRating.history && (
+                  <div className="ml-10 p-2.5 rounded-xl bg-slate-50 border border-slate-100 text-xs text-slate-600 flex items-center gap-2 font-medium">
+                    <Clock className="w-4 h-4 text-blue-600 shrink-0" />
+                    <span>{floodRating.history}</span>
+                  </div>
+                )}
               </div>
 
               {/* 3. Uninterrupted Water System */}
               <div className="space-y-2 pt-3 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${!isNoWaterBackup ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
-                      <Droplets className={`w-4 h-4 ${!isNoWaterBackup ? 'text-sky-600' : 'text-slate-400'}`} />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${waterSystem.hasTank || waterSystem.hasBooster ? 'bg-sky-100 text-sky-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <Droplets className={`w-4 h-4 ${waterSystem.hasTank || waterSystem.hasBooster ? 'text-sky-600' : 'text-slate-400'}`} />
                     </div>
                     <div>
                       <h4 className="font-extrabold text-sm text-[#0b1a30]">3. Water System Condition</h4>
@@ -846,41 +848,54 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{waterSystem.declared ? 'Claimed' : 'Not declared'}</span>
                       )}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${!isNoWaterBackup ? 'bg-[#dbeafe] text-[#1e40af]' : 'bg-slate-100 text-slate-600'}`}>
-                      {waterSystem.badge}
+                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${
+                      waterSystem.hasTank || waterSystem.hasBooster
+                        ? 'bg-[#dbeafe] text-[#1e40af]'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {waterSystem.claimLabel}
                     </span>
                   </div>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pl-10">
-                  {waterSystem.description}
+                  {waterSystem.description
+                    || (waterSystem.declared
+                      ? (waterSystem.declaredNone
+                        ? 'Declared as direct city tap only — no reserve tank or booster pump.'
+                        : 'Declared by the host; water pressure has not been measured yet.')
+                      : 'The host has not declared this pad’s water system yet.')}
                 </p>
-                {isNoWaterBackup ? (
-                  <div className="ml-10 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 font-medium">
-                    🚰 Connected directly to municipal water lines without booster pumps or reserve tanks.
-                  </div>
-                ) : (
+                {waterSystem.hasTank || waterSystem.hasBooster ? (
                   <div className="ml-10 grid grid-cols-2 gap-2 text-xs font-bold">
-                    <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-100 text-[#1e40af] flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-blue-600" />
-                      <span className="truncate">{waterSystem.tankCapacity}</span>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-100 text-[#1e40af] flex items-center gap-1.5">
-                      <Check className="w-4 h-4 text-blue-600" />
-                      <span>Auto Booster Pump</span>
-                    </div>
+                    {waterSystem.hasTank && (
+                      <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-100 text-[#1e40af] flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-blue-600" />
+                        <span className="truncate">{waterSystem.tankCapacity || 'Reserve water tank'}</span>
+                      </div>
+                    )}
+                    {waterSystem.hasBooster && (
+                      <div className="p-2.5 rounded-xl bg-blue-50/70 border border-blue-100 text-[#1e40af] flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-blue-600" />
+                        <span className="truncate">Auto Booster Pump</span>
+                      </div>
+                    )}
                   </div>
-                )}
+                ) : waterSystem.declared ? (
+                  <div className="ml-10 p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs text-slate-600 font-medium">
+                    🚰 No reserve tank or booster pump declared for this pad.
+                  </div>
+                ) : null}
               </div>
 
               {/* 4. Brownout Resilience Kit */}
               <div className="space-y-2 pt-3 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${!isNoPowerBackup ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
-                      <Zap className={`w-4 h-4 ${!isNoPowerBackup ? 'text-amber-600 fill-amber-600' : 'text-slate-400'}`} />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${powerSystem.hasBackup ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <Zap className={`w-4 h-4 ${powerSystem.hasBackup ? 'text-amber-600 fill-amber-600' : 'text-slate-400'}`} />
                     </div>
                     <div>
                       <h4 className="font-extrabold text-sm text-[#0b1a30]">4. Brownout Resilience Condition</h4>
@@ -897,25 +912,50 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{powerSystem.declared ? 'Claimed' : 'Not declared'}</span>
                       )}
                     </span>
-                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${!isNoPowerBackup ? 'bg-[#fef3c7] text-[#92400e]' : 'bg-slate-100 text-slate-600'}`}>
-                      {powerSystem.badge}
+                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${
+                      powerSystem.hasBackup
+                        ? 'bg-[#fef3c7] text-[#92400e]'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {powerSystem.claimLabel}
                     </span>
                   </div>
                 </div>
                 <p className="text-xs sm:text-sm text-slate-600 leading-relaxed pl-10">
-                  {powerSystem.description}
+                  {powerSystem.description
+                    || (powerSystem.declared
+                      ? (powerSystem.declaredNone
+                        ? 'Declared as grid-only — no generator or solar backup.'
+                        : 'Declared by the host; backup power has not been tested during a blackout yet.')
+                      : 'The host has not declared backup power for this pad yet.')}
                 </p>
+                {powerSystem.hasSolar || powerSystem.hasGenerator ? (
+                  <div className="ml-10 grid grid-cols-2 gap-2 text-xs font-bold">
+                    {powerSystem.hasSolar && (
+                      <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-900 flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-amber-600" />
+                        <span className="truncate">Solar emergency backup</span>
+                      </div>
+                    )}
+                    {powerSystem.hasGenerator && (
+                      <div className="p-2.5 rounded-xl bg-amber-50/70 border border-amber-200 text-amber-900 flex items-center gap-1.5">
+                        <Check className="w-4 h-4 text-amber-600" />
+                        <span className="truncate">Standby generator</span>
+                      </div>
+                    )}
+                  </div>
+                ) : null}
               </div>
 
               {/* 5. Mobile Data Speed (DITO, Smart, Globe) */}
               <div className="space-y-3 pt-3 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-purple-100 flex items-center justify-center text-purple-700 font-bold shrink-0">
-                      <Signal className="w-4 h-4 text-purple-600" />
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0 ${mobileData.declared ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-500'}`}>
+                      <Signal className={`w-4 h-4 ${mobileData.declared ? 'text-purple-600' : 'text-slate-400'}`} />
                     </div>
                     <div>
                       <h4 className="font-extrabold text-sm text-[#0b1a30]">5. Mobile Data In-Room Signal</h4>
@@ -932,31 +972,40 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{mobileData.declared ? 'Claimed' : 'Not measured'}</span>
                       )}
                     </span>
-                    <span className="px-2.5 py-0.5 rounded-md bg-purple-100 text-purple-800 text-[11px] font-extrabold">
-                      3/3 Carriers Audited
+                    <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${
+                      mobileData.declared
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-slate-100 text-slate-600'
+                    }`}>
+                      {mobileData.carrierCountLabel}
                     </span>
                   </div>
                 </div>
 
                 <div className="ml-10 grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="p-3 rounded-2xl bg-rose-50/80 border border-rose-200 font-bold text-rose-950">
-                    <span className="text-xs font-black text-rose-700">DITO Telecommunity</span>
-                    <p className="text-slate-700 font-bold text-xs mt-0.5">{wifiAudit.carrierSignals.dito}</p>
-                    <span className="text-[10px] text-rose-600 font-semibold block mt-0.5">Online Class Ready</span>
-                  </div>
-                  <div className="p-3 rounded-2xl bg-emerald-50/80 border border-emerald-200 font-bold text-emerald-950">
-                    <span className="text-xs font-black text-emerald-700">Smart Communications</span>
-                    <p className="text-slate-700 font-bold text-xs mt-0.5">{wifiAudit.carrierSignals.smart}</p>
-                    <span className="text-[10px] text-emerald-600 font-semibold block mt-0.5">High Stability</span>
-                  </div>
-                  <div className="p-3 rounded-2xl bg-blue-50/80 border border-blue-200 font-bold text-blue-950">
-                    <span className="text-xs font-black text-blue-700">Globe Telecom</span>
-                    <p className="text-slate-700 font-bold text-xs mt-0.5">{wifiAudit.carrierSignals.globe}</p>
-                    <span className="text-[10px] text-blue-600 font-semibold block mt-0.5">Fast Data Coverage</span>
-                  </div>
+                  {[
+                    { carrier: mobileData.dito, name: 'DITO Telecommunity', tone: 'bg-rose-50/80 border-rose-200 text-rose-950', label: 'text-rose-700', hint: 'text-rose-600' },
+                    { carrier: mobileData.smart, name: 'Smart Communications', tone: 'bg-emerald-50/80 border-emerald-200 text-emerald-950', label: 'text-emerald-700', hint: 'text-emerald-600' },
+                    { carrier: mobileData.globe, name: 'Globe Telecom', tone: 'bg-blue-50/80 border-blue-200 text-blue-950', label: 'text-blue-700', hint: 'text-blue-600' }
+                  ].map(({ carrier, name, tone, label, hint }) => (
+                    <div
+                      key={name}
+                      className={`p-3 rounded-2xl border font-bold ${
+                        carrier.declared ? tone : 'bg-slate-50 border-slate-200 text-slate-700'
+                      }`}
+                    >
+                      <span className={`text-xs font-black ${carrier.declared ? label : 'text-slate-500'}`}>{name}</span>
+                      <p className={`font-bold text-xs mt-0.5 ${carrier.declared ? 'text-slate-700' : 'text-slate-400'}`}>
+                        {carrier.declared ? carrier.text : 'Not measured'}
+                      </p>
+                      <span className={`text-[10px] font-semibold block mt-0.5 ${carrier.declared ? hint : 'text-slate-400'}`}>
+                        {carrier.declared ? carrier.badge : 'No signal claim'}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -970,7 +1019,11 @@ export default function PadDetails({
                     <div>
                       <h4 className="font-extrabold text-sm text-[#0b1a30]">6. Wi-Fi Speedtest™ On-Site Audit</h4>
                       <p className="text-[11px] text-slate-400 font-medium">
-                        {wifiAudit.hasWifi ? `${wifiAudit.verifiedDate} • ${wifiAudit.provider}` : 'Shared in-house Wi-Fi not provided by host'}
+                        {wifiAudit.hasWifi
+                          ? `${wifiAudit.hasAuditDate ? `${wifiAudit.verifiedDate} • ` : 'Host-declared • '}${wifiAudit.provider}`
+                          : wifiAudit.declared
+                            ? 'Shared in-house Wi-Fi not provided by host'
+                            : 'Wi-Fi not declared by host yet'}
                       </p>
                     </div>
                   </div>
@@ -984,7 +1037,7 @@ export default function PadDetails({
                           <span>Urios Verified</span>
                         </>
                       ) : (
-                        <span>Claimed</span>
+                        <span>{wifiAudit.declared ? 'Claimed' : 'Not declared'}</span>
                       )}
                     </span>
                     <span className={`px-2.5 py-0.5 rounded-md text-[11px] font-extrabold ${wifiAudit.hasWifi ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-200 text-slate-700'}`}>
@@ -997,17 +1050,29 @@ export default function PadDetails({
                   <div className="ml-10 grid grid-cols-2 gap-2.5">
                     <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <p className="text-xs text-slate-400 font-semibold">Download Speed</p>
-                      <p className="text-xl font-black text-[#0b1a30]">{wifiAudit.downloadMbps} <span className="text-xs font-normal">Mbps</span></p>
-                      <span className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-0.5">
-                        ↓ High Bandwidth
-                      </span>
+                      <p className="text-xl font-black text-[#0b1a30]">
+                        {wifiAudit.isSpeedMeasured
+                          ? (<>{wifiAudit.downloadMbps} <span className="text-xs font-normal">Mbps</span></>)
+                          : (<span className="text-sm font-bold text-slate-500">Speed not measured</span>)}
+                      </p>
+                      {wifiAudit.isSpeedMeasured && (
+                        <span className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-0.5">
+                          ↓ High Bandwidth
+                        </span>
+                      )}
                     </div>
                     <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                       <p className="text-xs text-slate-400 font-semibold">Upload Speed</p>
-                      <p className="text-xl font-black text-[#0b1a30]">{wifiAudit.uploadMbps} <span className="text-xs font-normal">Mbps</span></p>
-                      <span className="text-[11px] text-blue-700 font-bold flex items-center gap-1 mt-0.5">
-                        ↑ Fast Zoom / Thesis Submissions
-                      </span>
+                      <p className="text-xl font-black text-[#0b1a30]">
+                        {wifiAudit.isSpeedMeasured
+                          ? (<>{wifiAudit.uploadMbps} <span className="text-xs font-normal">Mbps</span></>)
+                          : (<span className="text-sm font-bold text-slate-500">Speed not measured</span>)}
+                      </p>
+                      {wifiAudit.isSpeedMeasured && (
+                        <span className="text-[11px] text-blue-700 font-bold flex items-center gap-1 mt-0.5">
+                          ↑ Fast Zoom / Thesis Submissions
+                        </span>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -1016,9 +1081,13 @@ export default function PadDetails({
                       <Wifi className="w-4 h-4 text-slate-500" />
                     </div>
                     <div>
-                      <p className="text-xs font-black text-slate-800">No Shared In-House Wi-Fi</p>
+                      <p className="text-xs font-black text-slate-800">
+                        {wifiAudit.declared ? 'No Shared In-House Wi-Fi' : 'Wi-Fi Not Declared'}
+                      </p>
                       <p className="text-[11px] text-slate-500 leading-snug">
-                        Students use personal mobile cellular data (DITO, Smart, Globe) or private pocket Wi-Fi. All 3 carriers have verified in-room signal as shown above.
+                        {wifiAudit.declared
+                          ? 'Students use personal mobile cellular data (DITO, Smart, Globe) or private pocket Wi-Fi.'
+                          : 'The host has not declared whether this pad provides Wi-Fi yet.'}
                       </p>
                     </div>
                   </div>

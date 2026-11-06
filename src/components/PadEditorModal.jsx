@@ -13,13 +13,16 @@ import {
   Droplets,  Footprints,
   Bus,
   AlertCircle,
-  Clock
+  Clock,
+  CloudSun,
+  Signal
 } from 'lucide-react';
 import { api } from '../services/api';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import { LocationPickerMap } from './PropertyMap';
 import { padHasCurfew } from '../utils/curfew';
 import { estimateCommuteMinutes, formatDistance } from '../utils/distance';
+import { normalizeClaim } from '../utils/checklist';
 import { CAMPUS } from '../lib/mapConfig';
 
 const PRESET_IMAGES = [
@@ -29,6 +32,156 @@ const PRESET_IMAGES = [
   { label: 'Cozy En-Suite Student Pad', url: 'https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=600&q=80' },
   { label: 'Peaceful Boarding House Hallway', url: 'https://images.unsplash.com/photo-1560448204-e02f11c3d0e2?auto=format&fit=crop&w=600&q=80' }
 ];
+
+/*
+ * Section 4 choices.
+ *
+ * Every option carries its own structured claim flags, so the form writes
+ * `hasBoosterPump`, `isFloodFree`, `hasSolarBackup`, … together with the wording
+ * the student feed displays. Picking an option can therefore never save a badge
+ * such as "Not verified" that the profile would then render as a real feature.
+ * The empty value is a genuine third state: "the host has not declared this".
+ */
+const NOT_DECLARED = '';
+
+const CONDITION_OPTIONS = [
+  { value: NOT_DECLARED, label: 'Not declared yet' },
+  { value: 'good', label: 'Good condition (rain or shine)', status: 'Good Condition (Rain or Shine)' },
+  { value: 'fair', label: 'Fair — minor repairs noted', status: 'Fair — Minor Repairs Noted' },
+  { value: 'poor', label: 'Needs repair (leaks / structural issues)', status: 'Needs Repair (Leaks / Structural Issues)' }
+];
+
+const CONDITION_DETAILS = [
+  {
+    key: 'roofCondition',
+    label: 'Leak-free roof & ceiling',
+    claim: 'Leak-free roof through monsoon rains'
+  },
+  {
+    key: 'drainage',
+    label: 'Covered, dry corridors',
+    claim: 'Covered walkways & dry corridors'
+  },
+  {
+    key: 'ventilation',
+    label: 'Good ventilation & heat insulation',
+    claim: 'Cross-ventilated & heat-insulated'
+  }
+];
+
+const FLOOD_OPTIONS = [
+  { value: NOT_DECLARED, label: 'Not declared yet' },
+  {
+    value: 'Flood-Safe Zone',
+    label: 'Flood-safe (+2.4m elevation)',
+    isFloodFree: true,
+    elevation: '+2.4m High Ground Zone',
+    tagBadge: 'Flood-Safe Zone'
+  },
+  {
+    value: 'Zero Recorded Monsoon Flooding',
+    label: 'Zero recorded monsoon flooding',
+    isFloodFree: true,
+    elevation: '+2.0m High Ground Zone',
+    tagBadge: 'Dry Footpath'
+  },
+  {
+    value: 'Second Floor Living Quarters',
+    label: 'Second floor living quarters',
+    isFloodFree: true,
+    elevation: 'Elevated living quarters',
+    tagBadge: 'Elevated Quarters'
+  },
+  {
+    value: 'None (Flood-Prone / Ground Level)',
+    label: 'None (flood-prone / ground level)',
+    isFloodFree: false,
+    elevation: 'Ground Level',
+    tagBadge: 'Flood Watch Zone'
+  }
+];
+
+const WATER_OPTIONS = [
+  { value: NOT_DECLARED, label: 'Not declared yet' },
+  {
+    value: '24/7 Stainless Tank & Auto Pump',
+    label: '24/7 stainless tank & pump',
+    hasTank: true,
+    hasBooster: true,
+    tankCapacity: '1,000L Stainless Overhead Tank'
+  },
+  {
+    value: 'Overhead Tank + Deep Well Backup',
+    label: 'Overhead tank + deep well backup',
+    hasTank: true,
+    hasBooster: false,
+    tankCapacity: 'Overhead Tank + Deep Well'
+  },
+  {
+    value: 'City Water with Ground Cistern',
+    label: 'City water with cistern',
+    hasTank: true,
+    hasBooster: false,
+    tankCapacity: 'Ground Cistern'
+  },
+  {
+    value: 'None (Direct City Tap Only)',
+    label: 'None (direct city tap only)',
+    hasTank: false,
+    hasBooster: false,
+    tankCapacity: ''
+  }
+];
+
+const POWER_OPTIONS = [
+  { value: NOT_DECLARED, label: 'Not declared yet' },
+  { value: 'Solar Emergency Lighting & Backups', label: 'Solar emergency lighting', hasSolar: true, hasGenerator: false },
+  { value: 'Generator-Supported Common Areas', label: 'Generator ready', hasSolar: false, hasGenerator: true },
+  { value: 'Rechargeable LED Desk Stations', label: 'Rechargeable LED stations', hasSolar: false, hasGenerator: false },
+  { value: 'None (No Generator or Backup Power)', label: 'None (no backup power)', hasSolar: false, hasGenerator: false }
+];
+
+/*
+ * In-room SIM signal, measured per carrier. These live in
+ * `wifiAudit.carrierSignals`, the same shape the student profile and the AI
+ * search already read. checklist.js derives the "5G" / "full bars" badge from
+ * the words "5G", "full", "strong" and "bars", so keep those in the values.
+ */
+const CARRIER_FIELDS = [
+  { key: 'dito', label: 'DITO', accent: 'text-rose-700' },
+  { key: 'smart', label: 'Smart', accent: 'text-emerald-700' },
+  { key: 'globe', label: 'Globe', accent: 'text-blue-700' }
+];
+
+const CARRIER_OPTIONS = [
+  { value: '', label: 'Not measured' },
+  { value: 'Weak signal', label: 'Weak (1–2 bars)' },
+  { value: '4G LTE', label: '4G LTE' },
+  { value: '4G LTE • Full bars', label: '4G LTE · full bars' },
+  { value: '5G', label: '5G' },
+  { value: '5G • Full bars', label: '5G · full bars' }
+];
+
+const EMPTY_CARRIERS = { dito: '', smart: '', globe: '' };
+
+function normalizeCarrierSignals(signals) {
+  const out = {};
+  for (const { key } of CARRIER_FIELDS) {
+    const value = normalizeClaim(signals?.[key]);
+    if (value) out[key] = value;
+  }
+  return out;
+}
+
+/** Finds the saved claim in an option list, matching value *or* label. */
+function findOption(options, saved) {
+  if (saved === null || saved === undefined) return null;
+  const text = String(saved).trim().toLowerCase();
+  if (!text) return null;
+  return options.find(option => (
+    option.value.toLowerCase() === text || option.label.toLowerCase() === text
+  )) || null;
+}
 
 const COMMON_AMENITIES = [
   'Study Table & Chair',
@@ -79,10 +232,15 @@ export default function PadEditorModal({
   const [locationError, setLocationError] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [wifiSpeed, setWifiSpeed] = useState('');
-  const [wifiProvider, setWifiProvider] = useState('None (No Wi-Fi Provided)');
-  const [floodBadge, setFloodBadge] = useState('Not verified');
-  const [waterBadge, setWaterBadge] = useState('Not verified');
-  const [powerBadge, setPowerBadge] = useState('Not verified');
+  const [wifiProvider, setWifiProvider] = useState('');
+  const [carrierSignals, setCarrierSignals] = useState(EMPTY_CARRIERS);
+  // Section 4 declarations. `''` means the host has not declared the item yet,
+  // which is deliberately different from "declared none".
+  const [conditionRating, setConditionRating] = useState('');
+  const [conditionDetails, setConditionDetails] = useState([]);
+  const [floodBadge, setFloodBadge] = useState('');
+  const [waterBadge, setWaterBadge] = useState('');
+  const [powerBadge, setPowerBadge] = useState('');
   const [selectedAmenities, setSelectedAmenities] = useState([]);
   const [customAmenitiesText, setCustomAmenitiesText] = useState('');
   const [curfewRule, setCurfewRule] = useState('');
@@ -121,21 +279,85 @@ export default function PadEditorModal({
       }
 
       const rawWifi = property.wifiAudit || {};
-      const isNoWifi = rawWifi.hasWifi === false || 
-                       rawWifi.provider?.toLowerCase().includes('none') || 
-                       (rawWifi.downloadMbps !== undefined && Number(rawWifi.downloadMbps) === 0);
+      const rawWifiProvider = normalizeClaim(rawWifi.provider);
+      const rawWifiSpeed = Number(rawWifi.downloadMbps);
+      const isNoWifi = rawWifi.hasWifi === false ||
+                       /^none/i.test(rawWifiProvider) ||
+                       (!rawWifiProvider && rawWifiSpeed === 0);
 
       if (isNoWifi) {
         setWifiProvider('None (No Wi-Fi Provided)');
         setWifiSpeed(0);
       } else {
-        setWifiSpeed(Number(rawWifi.downloadMbps) || '');
-        setWifiProvider(rawWifi.provider || '');
+        setWifiSpeed(rawWifiSpeed > 0 ? rawWifiSpeed : '');
+        setWifiProvider(rawWifiProvider);
       }
 
-      if (property.floodRating?.badge) setFloodBadge(property.floodRating.badge);
-      if (property.waterSystem?.badge) setWaterBadge(property.waterSystem.badge);
-      if (property.powerSystem?.badge) setPowerBadge(property.powerSystem.badge);
+      const rawCarriers = rawWifi.carrierSignals && typeof rawWifi.carrierSignals === 'object'
+        ? rawWifi.carrierSignals
+        : {};
+      setCarrierSignals({
+        dito: normalizeClaim(rawCarriers.dito),
+        smart: normalizeClaim(rawCarriers.smart),
+        globe: normalizeClaim(rawCarriers.globe)
+      });
+
+      // Building condition — the checklist item that used to have no control
+      // at all. Prefer the structured rating, then fall back to the status text
+      // of rows saved before ratings existed.
+      const rawCondition = property.buildingCondition || {};
+      const savedConditionStatus = normalizeClaim(rawCondition.status);
+      const savedConditionRating = normalizeClaim(rawCondition.rating).toLowerCase();
+      const conditionOption =
+        CONDITION_OPTIONS.find(option => option.value === savedConditionRating) ||
+        CONDITION_OPTIONS.find(option => option.value &&
+          option.status.toLowerCase() === savedConditionStatus.toLowerCase());
+
+      const hasConditionClaim = Boolean(
+        savedConditionStatus ||
+        normalizeClaim(rawCondition.badge) ||
+        normalizeClaim(rawCondition.description) ||
+        rawCondition.isCertified === true
+      );
+
+      setConditionRating(
+        conditionOption?.value ||
+        (hasConditionClaim ? (/good|excellent|renovat|leak-free/i.test(savedConditionStatus) ? 'good' : 'fair') : '')
+      );
+      setConditionDetails(
+        CONDITION_DETAILS
+          .filter(detail => Boolean(normalizeClaim(rawCondition[detail.key])))
+          .map(detail => detail.key)
+      );
+
+      // Flood / water / power — map the stored wording onto a known choice.
+      // Legacy placeholders ("Not verified", "Host-declared") resolve to
+      // "not declared" instead of being saved back as a feature.
+      const rawFlood = property.floodRating || {};
+      let floodOption = findOption(FLOOD_OPTIONS, rawFlood.badge) ||
+                        findOption(FLOOD_OPTIONS, rawFlood.tagBadge);
+      if (!floodOption && rawFlood.isFloodFree !== undefined) {
+        floodOption = FLOOD_OPTIONS.find(option => option.value && option.isFloodFree === Boolean(rawFlood.isFloodFree)) || null;
+      }
+      setFloodBadge(floodOption?.value || normalizeClaim(rawFlood.badge));
+
+      const rawWater = property.waterSystem || {};
+      let waterOption = findOption(WATER_OPTIONS, rawWater.badge);
+      if (!waterOption && (rawWater.hasReserveTank || rawWater.hasBoosterPump)) {
+        waterOption = WATER_OPTIONS.find(option => option.value &&
+          option.hasTank === Boolean(rawWater.hasReserveTank) &&
+          option.hasBooster === Boolean(rawWater.hasBoosterPump)) || null;
+      }
+      setWaterBadge(waterOption?.value || normalizeClaim(rawWater.badge));
+
+      const rawPower = property.powerSystem || {};
+      let powerOption = findOption(POWER_OPTIONS, rawPower.badge);
+      if (!powerOption && (rawPower.hasSolarBackup || rawPower.hasGenerator)) {
+        powerOption = POWER_OPTIONS.find(option => option.value &&
+          option.hasSolar === Boolean(rawPower.hasSolarBackup) &&
+          option.hasGenerator === Boolean(rawPower.hasGenerator)) || null;
+      }
+      setPowerBadge(powerOption?.value || normalizeClaim(rawPower.badge));
 
       if (Array.isArray(property.amenities)) {
         setSelectedAmenities(property.amenities.map(a => typeof a === 'string' ? a : a.name).filter(Boolean));
@@ -163,6 +385,14 @@ export default function PadEditorModal({
       setImageUrl('');
       setLatitude('');
       setLongitude('');
+      setWifiSpeed('');
+      setWifiProvider('');
+      setCarrierSignals(EMPTY_CARRIERS);
+      setConditionRating('');
+      setConditionDetails([]);
+      setFloodBadge('');
+      setWaterBadge('');
+      setPowerBadge('');
       setCurfewRule('');
       setHasCurfew(true);
     }
@@ -232,6 +462,18 @@ export default function PadEditorModal({
     setCustomAmenitiesText('');
   };
 
+  // Wi-Fi is three-state: not declared, declared ISP (with a measured speed),
+  // or explicitly "no Wi-Fi". These helpers keep the form and the saved payload
+  // reading the same values.
+  const wifiSpeedValue = wifiSpeed === '' ? 0 : Number(wifiSpeed);
+  const noWifiSelected = /none/i.test(wifiProvider);
+
+  const toggleConditionDetail = (key) => {
+    setConditionDetails(prev => (
+      prev.includes(key) ? prev.filter(item => item !== key) : [...prev, key]
+    ));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -259,10 +501,21 @@ export default function PadEditorModal({
       icon: getAmenityIcon(am)
     }));
 
-    const isNoneWifi = wifiProvider.toLowerCase().includes('none') || Number(wifiSpeed) === 0;
-    const isNoneFlood = floodBadge.toLowerCase().includes('none') || floodBadge.toLowerCase().includes('prone');
-    const isNoneWater = waterBadge.toLowerCase().includes('none') || waterBadge.toLowerCase().includes('direct tap');
-    const isNonePower = powerBadge.toLowerCase().includes('none') || powerBadge.toLowerCase().includes('no backup') || powerBadge.toLowerCase().includes('no generator');
+    // ── Section 4 declarations ─────────────────────────────────────────────
+    // Each choice carries its own flags. "Not declared" (empty value) writes an
+    // empty claim rather than a phrase like "Not verified" that the student
+    // profile would render as if the host had answered.
+    const carrierSignalValues = normalizeCarrierSignals(carrierSignals);
+    const hasCarrierClaim = Object.keys(carrierSignalValues).length > 0;
+    const wifiUndecided = !wifiProvider && !wifiSpeedValue && !hasCarrierClaim;
+
+    const conditionChoice = CONDITION_OPTIONS.find(option => option.value === conditionRating) || null;
+    const chosenDetails = CONDITION_DETAILS.filter(detail => conditionDetails.includes(detail.key));
+    const detailClaim = (key) => chosenDetails.find(detail => detail.key === key)?.claim || '';
+
+    const floodChoice = FLOOD_OPTIONS.find(option => option.value === floodBadge) || null;
+    const waterChoice = WATER_OPTIONS.find(option => option.value === waterBadge) || null;
+    const powerChoice = POWER_OPTIONS.find(option => option.value === powerBadge) || null;
 
     const walkMins = Number(walkingMinutes) || 0;
     const gateMeters = Number(distanceMeters) || 0;
@@ -301,35 +554,44 @@ export default function PadEditorModal({
           label: feedDistanceText
         }
       },
-      wifiAudit: {
-        hasWifi: !isNoneWifi,
-        downloadMbps: isNoneWifi ? 0 : Number(wifiSpeed),
-        uploadMbps: isNoneWifi ? 0 : Math.round(Number(wifiSpeed) * 0.5),
-        provider: isNoneWifi ? 'None (No Wi-Fi Provided)' : wifiProvider,
-        verifiedDate: '',
-        ratingBadge: isNoneWifi ? 'No Wi-Fi' : (Number(wifiSpeed) >= 60 ? 'Ultra Fast Fiber' : 'Fiber Ready (Fast)'),
-        carrierSignals: {}
+      wifiAudit: wifiUndecided ? {} : {
+        // Carrier signals share this object with Wi-Fi, so only write Wi-Fi
+        // keys when the host actually made a Wi-Fi claim. Otherwise a pad with
+        // SIM data but "Wi-Fi not declared" would look like "no Wi-Fi here".
+        ...(wifiProvider || wifiSpeedValue > 0 ? {
+          hasWifi: !noWifiSelected,
+          downloadMbps: noWifiSelected ? 0 : wifiSpeedValue,
+          uploadMbps: noWifiSelected ? 0 : Math.round(wifiSpeedValue * 0.5),
+          provider: noWifiSelected ? 'None (No Wi-Fi Provided)' : wifiProvider,
+          // Never erase an audit date the landlord is not being asked about here.
+          verifiedDate: normalizeClaim(property?.wifiAudit?.verifiedDate),
+          ratingBadge: noWifiSelected
+            ? 'No Wi-Fi'
+            : (wifiSpeedValue >= 60 ? 'Ultra Fast Fiber' : 'Fiber Ready (Fast)')
+        } : {}),
+        carrierSignals: carrierSignalValues
       },
-      floodRating: {
-        isFloodFree: isNoneFlood ? false : undefined,
-        badge: floodBadge,
-        tagBadge: isNoneFlood ? 'Flood Watch Zone' : 'Host-declared',
-        description: 'Host-declared flood information. Pending independent audit.',
-        history: ''
-      },
-      waterSystem: {
-        hasBoosterPump: !isNoneWater && waterBadge.toLowerCase().includes('pump'),
-        hasReserveTank: !isNoneWater && !waterBadge.toLowerCase().includes('direct tap'),
-        badge: waterBadge,
-        description: 'Host-declared water system information. Pending independent audit.',
-        tankCapacity: ''
-      },
-      powerSystem: {
-        hasSolarBackup: !isNonePower && powerBadge.toLowerCase().includes('solar'),
-        hasGenerator: !isNonePower && powerBadge.toLowerCase().includes('generator'),
-        badge: powerBadge,
-        description: 'Host-declared backup power information. Pending independent audit.'
-      },
+      floodRating: floodChoice && floodChoice.value ? {
+        isFloodFree: floodChoice.isFloodFree,
+        badge: floodChoice.value,
+        tagBadge: floodChoice.tagBadge || 'Host-declared',
+        elevation: floodChoice.elevation || '',
+        description: normalizeClaim(property?.floodRating?.description),
+        history: normalizeClaim(property?.floodRating?.history)
+      } : {},
+      waterSystem: waterChoice && waterChoice.value ? {
+        hasBoosterPump: waterChoice.hasBooster,
+        hasReserveTank: waterChoice.hasTank,
+        badge: waterChoice.value,
+        tankCapacity: waterChoice.tankCapacity || '',
+        description: normalizeClaim(property?.waterSystem?.description)
+      } : {},
+      powerSystem: powerChoice && powerChoice.value ? {
+        hasSolarBackup: powerChoice.hasSolar,
+        hasGenerator: powerChoice.hasGenerator,
+        badge: powerChoice.value,
+        description: normalizeClaim(property?.powerSystem?.description)
+      } : {},
       amenities: formattedAmenities,
       rules: hasCurfew
         ? (curfewRule.trim()
@@ -340,13 +602,20 @@ export default function PadEditorModal({
             desc: curfewRule.trim() || '24/7 gate access — no curfew enforced.',
             curfew: false
           }],
-      buildingCondition: property?.buildingCondition || {
-        status: 'Pending audit',
-        badge: 'Not yet audited',
+      // Checklist item 1 — previously had no form control and was frozen at
+      // "Pending audit" for every pad, which is why the profile showed a
+      // verified pill above "Building condition has not been audited yet".
+      buildingCondition: conditionChoice && conditionChoice.value ? {
+        rating: conditionChoice.value,
+        status: conditionChoice.status,
+        badge: 'Host-declared',
         tagBadge: 'Host-declared',
         isCertified: false,
-        description: 'Building condition has not been audited yet.'
-      },
+        roofCondition: detailClaim('roofCondition'),
+        drainage: detailClaim('drainage'),
+        ventilation: detailClaim('ventilation'),
+        description: chosenDetails.map(detail => detail.claim).join(' • ')
+      } : {},
       landlord: {
         name: user?.name || property?.landlord?.name || '',
         role: 'landlord',
@@ -733,8 +1002,64 @@ export default function PadEditorModal({
           <div className="space-y-3 pt-2">
             <h4 className="font-extrabold text-xs text-[#0b1a30] uppercase tracking-wider flex items-center gap-1.5 border-b border-slate-100 pb-1.5">
               <ShieldCheck className="w-4 h-4 text-indigo-600" />
-              <span>4. Student Reality Audit (Flood, Water & Wi-Fi)</span>
+              <span>4. Student Reality Audit (Structure, Flood, Water, Wi-Fi & SIM)</span>
             </h4>
+
+            <p className="text-[10px] text-slate-500 leading-snug -mt-1">
+              These answers appear on your listing as <b>host-declared</b> claims until an FSUU auditor
+              inspects the pad. Leave a field on <b>“Not declared yet”</b> if you would rather not claim it.
+            </p>
+
+            {/* 4.1 Good Condition (Rain or Shine) — checklist item 1 */}
+            <div className="p-3 rounded-2xl bg-amber-50/70 border border-amber-200/80 space-y-2.5">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1 flex items-center gap-1">
+                  <CloudSun className="w-3.5 h-3.5 text-amber-600" /> Building Condition (Rain or Shine)
+                </label>
+                <select
+                  value={conditionRating}
+                  onChange={(e) => setConditionRating(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl bg-white border border-amber-200 font-bold text-slate-800 text-xs"
+                >
+                  {CONDITION_OPTIONS.map(option => (
+                    <option key={option.value || 'undeclared'} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {conditionRating ? (
+                <div>
+                  <span className="block text-[10px] font-black uppercase tracking-wider text-amber-800 mb-1">
+                    What holds up?
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {CONDITION_DETAILS.map(detail => {
+                      const checked = conditionDetails.includes(detail.key);
+                      return (
+                        <button
+                          key={detail.key}
+                          type="button"
+                          onClick={() => toggleConditionDetail(detail.key)}
+                          aria-pressed={checked}
+                          className={`px-2.5 py-1 rounded-lg text-[10.5px] font-bold border transition-colors cursor-pointer flex items-center gap-1 ${
+                            checked
+                              ? 'bg-white text-amber-950 border-amber-400 shadow-2xs'
+                              : 'bg-white/60 text-slate-500 border-amber-200 hover:bg-white'
+                          }`}
+                        >
+                          <Check className={`w-3 h-3 ${checked ? 'text-emerald-600' : 'text-slate-300'}`} />
+                          <span>{detail.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <p className="text-[10px] text-amber-800/80 font-medium">
+                  Students will see “Condition not declared” on your pad instead of a rain-or-shine claim.
+                </p>
+              )}
+            </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
@@ -746,10 +1071,12 @@ export default function PadEditorModal({
                   onChange={(e) => setFloodBadge(e.target.value)}
                   className="w-full px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                 >
-                  <option value="Flood-Safe Zone (+2.4m Elevation)">Flood-Safe (+2.4m Elevation)</option>
-                  <option value="Zero Recorded Monsoon Flooding">Zero Recorded Flooding</option>
-                  <option value="Second Floor Living Quarters">Second Floor Quarters</option>
-                  <option value="None (Flood-Prone / Ground Level)">None (Flood-Prone / Ground Level)</option>
+                  {FLOOD_OPTIONS.map(option => (
+                    <option key={option.value || 'undeclared'} value={option.value}>{option.label}</option>
+                  ))}
+                  {floodBadge && !FLOOD_OPTIONS.some(option => option.value === floodBadge) && (
+                    <option value={floodBadge}>{floodBadge} (saved)</option>
+                  )}
                 </select>
               </div>
 
@@ -762,10 +1089,12 @@ export default function PadEditorModal({
                   onChange={(e) => setWaterBadge(e.target.value)}
                   className="w-full px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                 >
-                  <option value="24/7 Stainless Tank & Auto Pump">24/7 Stainless Tank & Pump</option>
-                  <option value="Overhead Tank + Deep Well Backup">Tank + Deep Well Backup</option>
-                  <option value="City Water with Ground Cistern">City Water with Cistern</option>
-                  <option value="None (Direct City Tap Only)">None (Direct City Tap Only)</option>
+                  {WATER_OPTIONS.map(option => (
+                    <option key={option.value || 'undeclared'} value={option.value}>{option.label}</option>
+                  ))}
+                  {waterBadge && !WATER_OPTIONS.some(option => option.value === waterBadge) && (
+                    <option value={waterBadge}>{waterBadge} (saved)</option>
+                  )}
                 </select>
               </div>
 
@@ -778,10 +1107,12 @@ export default function PadEditorModal({
                   onChange={(e) => setPowerBadge(e.target.value)}
                   className="w-full px-2.5 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                 >
-                  <option value="Solar Emergency Lighting & Backups">Solar Emergency Lighting</option>
-                  <option value="Generator-Supported Common Areas">Generator Ready</option>
-                  <option value="Rechargeable LED Desk Stations">Rechargeable LED Stations</option>
-                  <option value="None (No Generator or Backup Power)">None (No Backup Power)</option>
+                  {POWER_OPTIONS.map(option => (
+                    <option key={option.value || 'undeclared'} value={option.value}>{option.label}</option>
+                  ))}
+                  {powerBadge && !POWER_OPTIONS.some(option => option.value === powerBadge) && (
+                    <option value={powerBadge}>{powerBadge} (saved)</option>
+                  )}
                 </select>
               </div>
             </div>
@@ -796,19 +1127,27 @@ export default function PadEditorModal({
                   onChange={(e) => {
                     const val = e.target.value;
                     setWifiProvider(val);
-                    if (val === 'None (No Wi-Fi Provided)' || val === 'None (No Wi-Fi)') {
+                    if (/none/i.test(val)) {
                       setWifiSpeed(0);
-                    } else if (wifiSpeed === 0) {
+                    } else if (!val) {
+                      setWifiSpeed('');
+                    } else if (!wifiSpeedValue) {
                       setWifiSpeed(50);
                     }
                   }}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                 >
+                  <option value="">Not declared yet</option>
                   <option value="PLDT Home Fiber">PLDT Home Fiber</option>
                   <option value="Converge FiberX">Converge FiberX</option>
                   <option value="Globe At Home">Globe At Home</option>
                   <option value="DITO 5G Home WiFi">DITO 5G Home WiFi</option>
                   <option value="None (No Wi-Fi Provided)">None (No Wi-Fi Provided)</option>
+                  {wifiProvider &&
+                    !['PLDT Home Fiber', 'Converge FiberX', 'Globe At Home', 'DITO 5G Home WiFi', 'None (No Wi-Fi Provided)', 'None (No Wi-Fi)']
+                      .includes(wifiProvider) && (
+                      <option value={wifiProvider}>{wifiProvider} (saved)</option>
+                    )}
                 </select>
               </div>
 
@@ -817,7 +1156,7 @@ export default function PadEditorModal({
                   <span className="flex items-center gap-1">
                     <Wifi className="w-3 h-3 text-indigo-600" /> Wi-Fi Download Speed (Mbps)
                   </span>
-                  {(wifiProvider.toLowerCase().includes('none') || wifiSpeed === 0) && (
+                  {(noWifiSelected) && (
                     <span className="text-[10px] text-amber-600 font-black uppercase tracking-wider">Set to None</span>
                   )}
                 </label>
@@ -825,8 +1164,8 @@ export default function PadEditorModal({
                   type="number"
                   min="0"
                   max="1000"
-                  disabled={wifiProvider.toLowerCase().includes('none')}
-                  value={wifiProvider.toLowerCase().includes('none') ? 0 : wifiSpeed}
+                  disabled={noWifiSelected}
+                  value={noWifiSelected ? 0 : wifiSpeed}
                   onChange={(e) => {
                     const val = Number(e.target.value);
                     setWifiSpeed(val);
@@ -835,16 +1174,52 @@ export default function PadEditorModal({
                     }
                   }}
                   className={`w-full px-3 py-2 rounded-xl border text-xs font-bold transition-colors ${
-                    wifiProvider.toLowerCase().includes('none')
+                    noWifiSelected
                       ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed'
                       : 'bg-slate-50 border-slate-200 text-slate-800'
                   }`}
                 />
-                {wifiProvider.toLowerCase().includes('none') ? (
+                {noWifiSelected ? (
                   <p className="text-[10px] text-slate-500 font-medium mt-1">
                     ✓ Wi-Fi set to None. Listing will inform students to rely on mobile cellular data.
                   </p>
+                ) : !wifiProvider && !wifiSpeedValue ? (
+                  <p className="text-[10px] text-slate-500 font-medium mt-1">
+                    Not declared yet — students will see “Wi-Fi not declared” instead of a speed claim.
+                  </p>
                 ) : null}
+              </div>
+            </div>
+
+            <div className="mt-3 pt-3 border-t border-slate-100">
+              <label className="block text-[11px] font-bold text-slate-600 mb-1 flex items-center gap-1">
+                <Signal className="w-3 h-3 text-purple-600" /> In-Room SIM Signal (per provider)
+              </label>
+              <p className="text-[10px] text-slate-500 font-medium mb-2">
+                Optional. What a student's mobile data gets inside the room — leave “Not measured” if you have not tested it.
+              </p>
+              <div className="grid grid-cols-3 gap-2">
+                {CARRIER_FIELDS.map(({ key, label, accent }) => {
+                  const saved = carrierSignals[key];
+                  const known = CARRIER_OPTIONS.some(option => option.value === saved);
+                  return (
+                    <div key={key}>
+                      <label className={`block text-[10px] font-black uppercase tracking-wide mb-1 ${accent}`}>
+                        {label}
+                      </label>
+                      <select
+                        value={saved}
+                        onChange={(e) => setCarrierSignals(prev => ({ ...prev, [key]: e.target.value }))}
+                        className="w-full px-2 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-[11px]"
+                      >
+                        {CARRIER_OPTIONS.map(option => (
+                          <option key={option.value || 'undecided'} value={option.value}>{option.label}</option>
+                        ))}
+                        {saved && !known && <option value={saved}>{saved} (saved)</option>}
+                      </select>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </div>

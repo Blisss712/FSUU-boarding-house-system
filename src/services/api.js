@@ -1142,13 +1142,15 @@ export const api = {
       inspectionDate: auditData.inspectionDate || 'October 2026',
       auditorName: auditData.auditorName || 'FSUU Housing Committee Admin',
       auditNotes: auditData.auditNotes !== undefined ? auditData.auditNotes : (currentBadges.auditNotes || ''),
+      // Never fabricate per-item verdicts: an audit call that does not say which
+      // items were checked certifies none of them, rather than all of them.
       verifiedItems: auditData.verifiedItems || currentBadges.verifiedItems || {
-        goodCondition: true,
-        flood: true,
-        water: true,
-        power: true,
-        mobile: true,
-        wifi: true
+        goodCondition: false,
+        flood: false,
+        water: false,
+        power: false,
+        mobile: false,
+        wifi: false
       }
     };
 
@@ -2232,6 +2234,110 @@ export const api = {
     }
 
     return { conversationId, landlord: account };
+  },
+
+  /**
+   * The profile behind a chat head: the public account row plus the context
+   * that makes a conversation meaningful —
+   *   * a landlord's listings (public rows),
+   *   * a boarder's current pad (only when RLS lets the caller read it).
+   *
+   * Parent/guardian details and student IDs are deliberately NOT included:
+   * a chat profile is visible to whoever is in the thread, not just the host.
+   */
+  async getChatProfile(userId) {
+    if (!userId) throw new ApiError('Choose an account to view.', 400);
+
+    // Only the fields a chat profile renders are projected out of the account
+    // row: the table also holds guardian contacts and student IDs, and a chat
+    // profile is visible to everyone in the thread.
+    const CHAT_PROFILE_FIELDS = [
+      'id', 'name', 'email', 'role', 'avatarInitials', 'phone', 'course',
+      'yearLevel', 'createdAt', 'isUriosVerified', 'verificationStatus',
+      'verifiedAt', 'verifiedBy', 'verificationNotes',
+      'facebook', 'instagram', 'twitter'
+    ];
+
+    const { data: row, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', String(userId))
+      .maybeSingle();
+
+    if (error) throw messagingError(error, 'Could not load that profile.');
+    if (!row) throw new ApiError('That account no longer exists.', 404);
+
+    const full = publicUser(row);
+    const user = {};
+    for (const field of CHAT_PROFILE_FIELDS) {
+      if (full[field] !== undefined) user[field] = full[field];
+    }
+
+    const profile = { user, listings: [], tenancy: null };
+
+    if (user.role === 'landlord') {
+      const { data, error: listingsError } = await supabase
+        .from('properties')
+        .select('*')
+        .order('name', { ascending: true });
+
+      if (listingsError) {
+        console.warn('[Supabase chat profile listings warning]:', listingsError.message);
+        return profile;
+      }
+
+      const identity = { id: user.id, email: user.email };
+      const wantedName = String(user.name || '').trim().toLowerCase();
+
+      profile.listings = (data || [])
+        .map(sanitizeRow)
+        .filter(prop => {
+          if (landlordOwnsProperty(prop, identity)) return true;
+          // Legacy rows that only carry the host's name in the JSON.
+          const ownerName = String(prop.landlord?.name || '').trim().toLowerCase();
+          return Boolean(wantedName && ownerName && ownerName === wantedName);
+        })
+        .map(prop => ({
+          id: prop.id,
+          name: prop.name,
+          shortLocation: prop.shortLocation || prop.area || '',
+          price: Number(prop.price) || 0,
+          priceSubtext: prop.priceSubtext || '/month',
+          availableCount: Number(prop.availableCount) || 0,
+          images: Array.isArray(prop.images) ? prop.images : [],
+          rating: Number(prop.rating) || 0,
+          statusTag: prop.statusTag || ''
+        }));
+      return profile;
+    }
+
+    if (user.role === 'boarder') {
+      // RLS only returns this to the boarder, their own landlord, or an admin.
+      // Anyone else simply gets no pad card — never an error.
+      try {
+        const { data: rows } = await supabase
+          .from('tenancy')
+          .select('*')
+          .eq('userId', user.id)
+          .eq('isActive', 1)
+          .order('id', { ascending: false })
+          .limit(1);
+
+        const tenancy = (rows || [])[0];
+        if (tenancy?.propertyId) {
+          profile.tenancy = {
+            propertyId: tenancy.propertyId,
+            propertyName: tenancy.propertyName || null,
+            roomNumber: tenancy.roomNumber || null,
+            semester: tenancy.semester || null
+          };
+        }
+      } catch {
+        // ignore — the pad card is optional context
+      }
+    }
+
+    return profile;
   },
 
   /**

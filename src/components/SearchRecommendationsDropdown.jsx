@@ -5,7 +5,6 @@ import {
   Zap,
   Signal,
   Wifi,
-  Footprints,
   CloudSun,
   Clock,
   Sparkles,
@@ -14,6 +13,7 @@ import {
   Snowflake,
   SlidersHorizontal,
   ChevronRight,
+  ArrowRight,
   Search,
   CheckCircle2,
   X
@@ -110,7 +110,8 @@ export default function SearchRecommendationsDropdown({
   properties = [],
   availableAmenities = [],
   onClose,
-  onOpenFilters
+  onOpenFilters,
+  onAskAi
 }) {
   const query = (searchQuery || '').trim().toLowerCase();
 
@@ -216,6 +217,30 @@ export default function SearchRecommendationsDropdown({
 
       <div className="max-h-[min(540px,76vh)] overflow-y-auto divide-y divide-slate-100 p-2 sm:p-3 space-y-3">
         
+        {/* AI needs search: the answer to "search is not helpful" */}
+        {onAskAi && (
+          <div className="pt-1">
+            <button
+              type="button"
+              onClick={() => onAskAi(searchQuery || '')}
+              className="w-full flex items-center gap-2.5 p-2.5 rounded-xl text-left bg-gradient-to-r from-violet-50 to-blue-50 border border-violet-200 hover:border-violet-300 hover:from-violet-100/80 transition-all cursor-pointer group"
+            >
+              <div className="w-8 h-8 rounded-lg bg-white border border-violet-200 flex items-center justify-center shrink-0">
+                <Sparkles className="w-4 h-4 text-violet-700" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-extrabold text-violet-950">Let AI list what you need</p>
+                <p className="text-[11px] text-violet-900/70 leading-tight mt-0.5 line-clamp-2">
+                  {query
+                    ? `“${searchQuery.trim()}” — turn this sentence into needs, then matched pads`
+                    : 'Say it your way: “barato, duol sa gate, walay baha, kusog ang wifi”'}
+                </p>
+              </div>
+              <ArrowRight className="w-4 h-4 text-violet-400 group-hover:text-violet-700 group-hover:translate-x-0.5 transition-all shrink-0" />
+            </button>
+          </div>
+        )}
+
         {/* Quick Suggestion Pills */}
         {!query && (
           <div className="pt-1 pb-1">
@@ -407,7 +432,9 @@ export default function SearchRecommendationsDropdown({
           <div className="py-6 text-center text-slate-500">
             <Search className="w-7 h-7 mx-auto text-slate-300 mb-2" />
             <p className="text-xs font-bold text-slate-700">No exact recommendations for "{searchQuery}"</p>
-            <p className="text-[11px] text-slate-400 mt-1">Press Enter to search all listing names, descriptions, and landlord notes.</p>
+            <p className="text-[11px] text-slate-400 mt-1">
+              Plain search only matches listing text. The AI above understands budgets, Bisaya, and must-haves.
+            </p>
           </div>
         )}
       </div>

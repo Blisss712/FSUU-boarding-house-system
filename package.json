@@ -8,6 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "lint": "oxlint",
+    "test:ai": "node scripts/test-ai-needs.mjs && node scripts/test-ai-proxy.mjs",
     "clean:demo": "node scripts/clean-demo-data.js",
     "create:test-accounts": "node scripts/create-test-accounts.js"
   },

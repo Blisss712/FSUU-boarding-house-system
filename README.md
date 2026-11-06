@@ -27,6 +27,11 @@ Built specifically for the student and landlord community of **Father Saturnino 
    - **SMS One-Tap Vacancy Bot for Non-Tech Landlords:** Automated bi-weekly check-in via Philippine SMS (*"Reply 1 for Yes, 0 for Full"*) keeping listings accurate without requiring older landlords to use an app.
    - **Verified Tenant "Vibe Checks":** Exclusive ratings from verified `@urios.edu.ph` students on Study Noise, Landlady Strictness, CR Cleanliness, and Kitchen Access.
 
+5. **AI Needs Search (Google Gemini):**
+   - Type one sentence — *"barato nga solo room duol sa gate, walay baha, kusog ang wifi"* — and the AI lists the needs inside it (budget, zone, flood-safety, Wi-Fi speed…) and shows which pads actually prove each one.
+   - Needs become editable **must / nice-to-have** chips, so the student can drop one and re-rank instantly, then apply the list to the Explore feed.
+   - Every filter the model returns is validated against the live listings, and "not audited" is never treated as a match. See [AI Student-Needs Search](#ai-student-needs-search-gemini).
+
 ---
 
 ## 🚀 Getting Started
@@ -46,6 +51,9 @@ With Supabase handling the backend database and API, you only need to run Vite:
 npm run dev
 ```
 - App UI: `http://localhost:5173`
+- Optional: add `GEMINI_API_KEY` to `.env` to switch on the **AI Needs Search**
+  (see [AI Student-Needs Search](#ai-student-needs-search-gemini)). Everything
+  else works without it.
 
 ---
 
@@ -123,6 +131,24 @@ account. The badge is account-level, so it applies to every pad the landlord own
   `verificationNotes`, and normalizes an older integer `isUriosVerified` flag to
   a real boolean.
 
+### Explore Feed: Urios Verified vs All Listings
+
+The Explore feed has a two-way toggle above the results heading:
+
+- **All listings** (default) — every boarding house landlords have posted,
+  audited or not. Nothing is hidden until the searcher asks for it.
+- **Urios Verified** — only pads the FSUU student housing committee inspected and
+  badged. "Verified" here is the listing-level flag
+  (`properties.badges.isUriosVerified`), the same one rendered as the green
+  rosette on cards, the map pin, and the Auditor tab's verified counter.
+
+Each option shows how many pads it contains, so the searcher can see the split
+before switching. The choice composes with search, zone/budget/checklist filters
+and sorting, and it drives the map too (the sticky desktop map and the mobile
+full-screen map both render the same filtered list). If a verified-only search
+comes back empty, the empty state offers **Show all listings** next to **Clear All
+Filters** — which also returns the toggle to **All listings**.
+
 ### In-App Messaging
 
 The **Messages** tab is a Messenger-style inbox with three kinds of chat:
@@ -130,6 +156,8 @@ The **Messages** tab is a Messenger-style inbox with three kinds of chat:
 - **Pad groups (automatic):** every listing gets exactly one dedicated group chat, named `"<Pad name> · Pad Group"`. It is created by the database the moment the listing is created, the landlord who owns the listing is added automatically, and every **approved boarder** of that pad (an active `tenancy` row) is added automatically too. Approving a boarding application puts the new boarder in the group; ending a tenancy takes them out. Nobody has to create it or invite anyone, and it stays correct even if the boarder never opens the tab.
 - **Direct chats:** any signed-in user can search for another account (landlord, student, or auditor) and start a 1:1 conversation. Starting a chat that already exists reopens it instead of duplicating it.
 - **Manual group chats:** only landlord accounts can create one. The landlord who created the group is recorded as its landlord, and only that account can add or remove members. Everyone else sees the member list read-only.
+
+Pad-group membership is **derived** from the pad, so it is read-only in the UI: a landlord cannot remove an active boarder by hand (the database re-adds them on the next sync, and the RPC refuses outright).
 
 #### Messaging a landlord straight from a board listing
 
@@ -159,7 +187,22 @@ says so and points at the phone number instead of failing silently.
 No migration is needed for this — it is a UI entry point onto the messaging
 tables and RPCs created by `supabase/add-messaging.sql`.
 
-Pad-group membership is **derived** from the pad, so it is read-only in the UI: a landlord cannot remove an active boarder by hand (the database re-adds them on the next sync, and the RPC refuses outright).
+#### Profiles behind a chat head
+
+In the **Messages** tab, tapping someone's avatar (chat head) opens their profile
+without leaving the inbox — this works for **landlord and student accounts alike**:
+
+- the avatar in the conversation list (tapping the row still opens the chat),
+- the avatar in the thread header, plus the **Profile** button beside it,
+- a sender's avatar or name inside a group / pad-group thread.
+
+`api.getChatProfile(userId)` loads the public profile row and the context that
+makes the conversation meaningful: for a **landlord** their verification state
+and every listing they own (tap one to open the pad), for a **boarder** their
+course, year level and — only when RLS allows the caller to read that tenancy —
+the pad they board. Parent/guardian contacts and student IDs are deliberately
+excluded, because a chat profile is visible to everyone in the thread, not just
+to the host.
 
 Run `supabase/add-messaging.sql` once in the Supabase **SQL Editor**. It creates the `conversations`, `conversation_members`, and `messages` tables with their RLS policies and membership functions, adds them to the `supabase_realtime` publication, and installs the pad-group triggers. It also **backfills a pad group for every listing that already exists** (landlord + current boarders added), so old listings get their group on the next run.
 
@@ -182,6 +225,101 @@ Membership changes are rejected by the database unless the caller manages that g
 | Triggers on `properties`, `tenancy`, `users` | `add-messaging.sql` | Create the group on listing insert; add a boarder on approval; remove them when the tenancy ends |
 
 Every trigger is exception-safe: a messaging error can never block creating a listing, boarding a pad, or editing a profile.
+
+### AI Student-Needs Search (Gemini)
+
+Plain Explore search is a substring match over listing fields, so it only works
+when the student already talks like the database ("Aircon", "Flood-Safe Zone").
+Real requests look like *"barato, duol sa gate, walay baha, kusog wifi"* — and
+those returned nothing. The AI search closes that gap: one Gemini call turns the
+student's sentence into a **numbered list of the needs behind it**, then shows
+which pads can actually prove each need.
+
+**What the student sees**
+
+1. A sparkles **AI** button beside the search box (desktop and mobile), plus an
+   "Let AI list what you need" row in the normal recommendation dropdown.
+2. They type a sentence and get back a needs list — each need has the student's
+   own words as evidence, a **Must / Nice** toggle and a verdict: *"3 pads prove
+   it"*, *"not audited yet"*, or *"no pad in Butuan yet"*.
+3. Below it, pads are ranked against those needs with a short reason each
+   ("₱3,200 · flood-safe · 4 min walk"), and "2/3 must-haves" badges.
+4. **Apply to Explore** turns the must-have needs into the normal filters; a
+   banner above the feed keeps the needs visible and editable ("Edit list").
+
+Toggling a need off, or switching Must → Nice, re-ranks instantly — the verdicts
+for every listing are returned in the same call, so no extra API request is
+needed per edit.
+
+**Why it is not a chat toy: the trust rules**
+
+- Only *must* needs whose filters exist in the app are applied. A need like
+  "quiet" becomes a visible requirement and a ranking input, not a fake filter.
+- A must-have that **no listing can prove** is kept on the list but deliberately
+  **not applied**, so the feed never goes empty because of an unaudited field.
+- `null` in the catalog means *unknown*, never *absent*. Unknown facts land in
+  the "not audited" column; they are never counted as a match.
+- Every listing id, zone, amenity, room type and budget from the model is
+  validated against the live catalog. Invented listings are dropped with a
+  warning; out-of-range budgets clamp; unknown zones/amenities are discarded.
+- The needs panel always shows which claims come from the FSUU on-site audit
+  and which are unverified, and reminds the student to confirm with the landlord.
+
+**Setup (3 steps)**
+
+1. Create a free key at [aistudio.google.com](https://aistudio.google.com) →
+   **Get API key**.
+2. Add it to `.env` (never commit it):
+   ```env
+   GEMINI_API_KEY=your-key-here
+   ```
+3. Restart `npm run dev`. The header button is ready immediately; without a key
+   the panel shows these same instructions instead of failing silently.
+
+Optional overrides: `GEMINI_MODEL` (default `gemini-3.6-flash`, with automatic
+fallback to `gemini-3.5-flash` → `gemini-flash-lite-latest`) and
+`GEMINI_API_BASE_URL` (useful for a proxy or a test stub).
+
+**Where the key lives**
+
+The browser calls `/api/ai-search`, a tiny middleware in
+`scripts/vite-ai-proxy.js` mounted on the dev server **and** on `vite preview`.
+That middleware reads `GEMINI_API_KEY` from `.env` and calls Google itself, so
+the key never enters `dist/` or the browser bundle. Rate-limited to 12 searches
+per minute per client, a 45 s per-model cap inside a 90 s total budget with model
+fallback, and it logs model + latency (never the key) to the console.
+
+`VITE_GEMINI_API_KEY` exists only as a fallback for static hosting with no
+serverless function. It *is* compiled into the bundle — treat it as public:
+restrict it by HTTP referrer in Google Cloud, or (better) deploy the same
+middleware as a serverless function and keep using `/api/ai-search`.
+
+**Failure behaviour**
+
+No key, bad key, expired quota, blocked prompt, timeout, malformed JSON and an
+empty catalog each get their own message in the panel, with a retry action.
+Nothing is cached on failure; successful answers are cached in `sessionStorage`
+for 30 minutes per query + catalog snapshot, so re-opening a search is instant.
+
+**Files**
+
+| File | Role |
+|---|---|
+| `src/services/ai/aiNeeds.js` | Prompt, catalog compaction, filter validation, JSON parsing, need ranking, filter patch. Shared by the browser and the proxy; no framework, no side effects. |
+| `src/services/aiSearch.js` | Browser client: key/status probe, proxy call with fallback, timeouts, typed errors, 30-minute cache. |
+| `scripts/vite-ai-proxy.js` | Local Gemini proxy (dev + preview), model fallback, rate limit, error mapping. |
+| `src/components/AiNeedsSearchModal.jsx` | The needs panel: setup card, loading, needs list, ranked pads, apply. |
+| `src/App.jsx`, `src/components/Header.jsx`, `src/components/SearchRecommendationsDropdown.jsx` | Entry points, filter application, and the "needs you listed" banner on the feed. |
+
+**Limits & privacy**
+
+- Up to 60 listings per request (vacant, verified and cheapest first when the
+  catalog is larger); the panel states how many of how many were read.
+- Only the student's sentence plus compact listing facts (name, price, zone,
+  room type, amenities, checklist flags, walk minutes) are sent to Google
+  Gemini. No names, emails, phone numbers or account details.
+- Tests: `npm run test:ai` runs 21 unit tests plus 7 proxy integration tests
+  against a stub Gemini server — no key and no network required.
 
 ### Security & RLS:
 
@@ -229,9 +367,12 @@ All database queries are handled directly via the official Supabase Client (`@su
 serjon/
 ├── src/                                  # Pure Client-Side Supabase-Powered React App
 │   ├── components/                       # UI components (Pads, Tenancy, Filters, Maps, Messages, Modals)
+│   │   └── AiNeedsSearchModal.jsx        # AI needs list + ranked pads panel
 │   ├── context/                          # AuthContext (Supabase Auth Session Management)
 │   ├── lib/                              # supabase.js (createClient with persistSession)
 │   ├── services/                         # api.js (100% direct-to-Supabase query layer)
+│   │   ├── aiSearch.js                   # AI search client (proxy call, errors, cache)
+│   │   └── ai/aiNeeds.js                 # AI prompt, catalog, filter validation, ranking
 │   ├── utils/                            # checklist.js (Student Reality Checklist helpers)
 │   ├── App.jsx                           # Root layout & routing
 │   └── main.jsx                          # React 19 entry point
@@ -239,7 +380,11 @@ serjon/
 │   ├── full-setup.sql                    # Combined 1-click schema + RLS script
 │   └── clean-demo-data.sql               # Removes legacy seeded demo rows
 ├── scripts/                              # Helper administrative scripts
-│   └── clean-demo-data.js                # Deletes demo listings, users, and auth accounts
+│   ├── clean-demo-data.js                # Deletes demo listings, users, and auth accounts
+│   ├── vite-ai-proxy.js                  # Server-side Gemini proxy (key never in the bundle)
+│   ├── test-ai-needs.mjs                 # Unit tests for the needs contract
+│   └── test-ai-proxy.mjs                 # Proxy integration tests (stub Gemini, no key)
+├── vite.config.js                        # Vite + Tailwind + the AI proxy plugin
 └── package.json                          # Vite + React + Tailwind v4 + Supabase client
 ```
 

@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   MessageSquare, Plus, Search, X, Send, Users, ArrowLeft,
-  UserPlus, Loader2, ShieldCheck, Check, Home
+  UserPlus, Loader2, ShieldCheck, Check, Home, User
 } from 'lucide-react';
 import { api } from '../services/api';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import ChatProfileModal from './ChatProfileModal';
 
 const MAX_MESSAGE_LENGTH = 4000;
 
@@ -455,6 +456,7 @@ function GroupMembersModal({
 export default function MessagesView({
   user,
   onOpenAuth,
+  onOpenProperty,
   initialConversationId = null,
   initialConversationKey = null,
   initialDraft = '',
@@ -475,6 +477,8 @@ export default function MessagesView({
   const [contactsLoading, setContactsLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [memberBusy, setMemberBusy] = useState(false);
+  // The account whose profile is open over the inbox (chat-head tap).
+  const [profileAccount, setProfileAccount] = useState(null);
 
   const activeIdRef = useRef(null);
   const messageRequestRef = useRef(0);
@@ -826,6 +830,12 @@ export default function MessagesView({
     setDraft('');
   };
 
+  /** A chat-head tap shows that member's profile without leaving the inbox. */
+  const openProfile = useCallback((person) => {
+    if (!person?.id) return;
+    setProfileAccount(person);
+  }, []);
+
   if (!user) {
     return (
       <div className="flex-1 flex items-center justify-center px-4 py-16">
@@ -933,16 +943,39 @@ export default function MessagesView({
                   const isGroup = Boolean(conv.isGroup);
                   const isPad = Boolean(conv.isPadGroup);
                   const other = conv.otherMembers?.[0]?.user || null;
+                  const otherName = other?.name || other?.email || 'this member';
 
                   return (
-                    <button
+                    <div
                       key={conv.id}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => openConversation(conv)}
-                      className={`w-full text-left flex items-center gap-3 px-2.5 py-2.5 rounded-2xl transition-colors ${
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          openConversation(conv);
+                        }
+                      }}
+                      className={`w-full text-left flex items-center gap-3 px-2.5 py-2.5 rounded-2xl transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b1a30]/30 ${
                         isActive ? 'bg-slate-100' : 'hover:bg-slate-50'
                       }`}
                     >
-                      <Avatar person={isGroup ? null : other} group={isGroup && !isPad} pad={isPad} />
+                      {isGroup ? (
+                        <Avatar group={isGroup && !isPad} pad={isPad} />
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); openProfile(other); }}
+                          onKeyDown={(event) => event.stopPropagation()}
+                          disabled={!other}
+                          className="rounded-full shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 disabled:cursor-default disabled:hover:scale-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b1a30]/40"
+                          title={`View ${otherName}'s profile`}
+                          aria-label={`View ${otherName}'s profile`}
+                        >
+                          <Avatar person={other} />
+                        </button>
+                      )}
 
                       <div className="min-w-0 flex-1">
                         <div className="flex items-baseline gap-2">
@@ -973,7 +1006,7 @@ export default function MessagesView({
                           )}
                         </div>
                       </div>
-                    </button>
+                    </div>
                   );
                 })
               )}
@@ -1003,11 +1036,20 @@ export default function MessagesView({
                     <ArrowLeft className="w-4 h-4" />
                   </button>
 
-                  <Avatar
-                    person={activeConversation.isGroup ? null : otherUser}
-                    group={Boolean(activeConversation.isGroup) && !isPadGroupActive}
-                    pad={isPadGroupActive}
-                  />
+                  {activeConversation.isGroup ? (
+                    <Avatar group={Boolean(activeConversation.isGroup) && !isPadGroupActive} pad={isPadGroupActive} />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => openProfile(otherUser)}
+                      disabled={!otherUser}
+                      className="rounded-full shrink-0 cursor-pointer transition-transform hover:scale-105 active:scale-95 disabled:cursor-default focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b1a30]/40"
+                      title={otherUser ? `View ${otherUser.name || 'profile'}` : 'Profile'}
+                      aria-label={`View ${otherUser?.name || 'member'} profile`}
+                    >
+                      <Avatar person={otherUser} />
+                    </button>
+                  )}
 
                   <div className="min-w-0 flex-1">
                     <h3 className="font-extrabold text-[13px] sm:text-sm text-[#0b1a30] truncate">
@@ -1022,7 +1064,7 @@ export default function MessagesView({
                     </p>
                   </div>
 
-                  {activeConversation.isGroup && (
+                  {activeConversation.isGroup ? (
                     <button
                       onClick={() => setShowMembers(true)}
                       className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-[11px] font-bold text-slate-700 transition-colors shrink-0"
@@ -1030,6 +1072,15 @@ export default function MessagesView({
                     >
                       <Users className="w-3.5 h-3.5" />
                       <span className="hidden sm:inline">Members</span>
+                    </button>
+                  ) : otherUser && (
+                    <button
+                      onClick={() => openProfile(otherUser)}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-[11px] font-bold text-slate-700 transition-colors shrink-0 cursor-pointer"
+                      title={`View ${otherUser.name || 'this member'}'s profile`}
+                    >
+                      <User className="w-3.5 h-3.5" />
+                      <span className="hidden sm:inline">Profile</span>
                     </button>
                   )}
                 </div>
@@ -1076,14 +1127,35 @@ export default function MessagesView({
 
                           <div className={`flex gap-2 ${isMine ? 'justify-end' : 'justify-start'}`}>
                             {!isMine && activeConversation.isGroup && (
-                              <Avatar person={sender} size="sm" />
+                              sender ? (
+                                <button
+                                  type="button"
+                                  onClick={() => openProfile(sender)}
+                                  className="rounded-full shrink-0 self-start cursor-pointer transition-transform hover:scale-105 active:scale-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0b1a30]/40"
+                                  title={`View ${sender.name || 'member'} profile`}
+                                  aria-label={`View ${sender.name || 'member'} profile`}
+                                >
+                                  <Avatar person={sender} size="sm" />
+                                </button>
+                              ) : (
+                                <Avatar person={null} size="sm" />
+                              )
                             )}
 
                             <div className={`flex flex-col max-w-[82%] sm:max-w-[68%] ${isMine ? 'items-end' : 'items-start'}`}>
                               {!isMine && activeConversation.isGroup && (
-                                <span className="text-[10px] font-bold text-slate-500 mb-0.5 px-1">
-                                  {sender?.name || 'Member'}
-                                </span>
+                                sender ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => openProfile(sender)}
+                                    className="text-[10px] font-bold text-slate-500 hover:text-[#0b1a30] hover:underline mb-0.5 px-1 text-left cursor-pointer"
+                                    title={`View ${sender.name || 'member'} profile`}
+                                  >
+                                    {sender.name || 'Member'}
+                                  </button>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-slate-500 mb-0.5 px-1">Member</span>
+                                )
                               )}
 
                               <div className={`px-3.5 py-2 text-[13px] leading-relaxed whitespace-pre-wrap break-words rounded-2xl ${
@@ -1154,6 +1226,14 @@ export default function MessagesView({
           onClose={() => setShowMembers(false)}
           onAdd={handleAddMembers}
           onRemove={handleRemoveMember}
+        />
+      )}
+
+      {profileAccount && (
+        <ChatProfileModal
+          account={profileAccount}
+          onClose={() => setProfileAccount(null)}
+          onOpenProperty={onOpenProperty}
         />
       )}
     </div>

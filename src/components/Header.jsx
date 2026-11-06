@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X } from 'lucide-react';
+import { Search, SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X, Sparkles } from 'lucide-react';
 import SearchRecommendationsDropdown from './SearchRecommendationsDropdown';
 
 export default function Header({
@@ -16,7 +16,9 @@ export default function Header({
   // Search data props
   properties = [],
   availableAmenities = [],
-  onSelectProperty
+  onSelectProperty,
+  // AI needs search (sparkles button + dropdown entry point)
+  onOpenAiSearch
 }) {
   const [showSearchRecs, setShowSearchRecs] = useState(false);
   const [showMobileSearchRecs, setShowMobileSearchRecs] = useState(false);
@@ -131,9 +133,27 @@ export default function Header({
                 availableAmenities={availableAmenities}
                 onClose={() => setShowSearchRecs(false)}
                 onOpenFilters={openFilterModal}
+                onAskAi={(text) => {
+                  setShowSearchRecs(false);
+                  onOpenAiSearch?.(text);
+                }}
               />
             )}
           </div>
+
+          {/* AI needs search: describe the pad you need in one sentence */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowSearchRecs(false);
+              onOpenAiSearch?.(searchQuery);
+            }}
+            title="AI Needs Search — describe what you need and let AI list your needs"
+            className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-gradient-to-r from-violet-600 to-blue-700 hover:from-violet-700 hover:to-blue-800 text-white text-xs font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+            <span>AI</span>
+          </button>
 
           <button
             onClick={openFilterModal}
@@ -225,57 +245,76 @@ export default function Header({
 
       {/* Mobile-Only Search Row */}
       <div ref={mobileSearchContainerRef} className="md:hidden mt-2.5 relative">
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-          <input
-            type="text"
-            value={searchQuery}
-            onFocus={() => setShowMobileSearchRecs(true)}
-            onClick={() => setShowMobileSearchRecs(true)}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setShowMobileSearchRecs(true);
-            }}
-            placeholder="Search pad, amenities (Aircon, Desk) or checklist..."
-            className={`w-full pl-9 pr-8 py-2 text-xs rounded-xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 ${
-              showMobileSearchRecs
-                ? 'border-[#0b1a30] ring-2 ring-[#0b1a30]/20 bg-white shadow-sm'
-                : 'bg-slate-50 border border-slate-200'
-            }`}
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('');
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <input
+              type="text"
+              value={searchQuery}
+              onFocus={() => setShowMobileSearchRecs(true)}
+              onClick={() => setShowMobileSearchRecs(true)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
                 setShowMobileSearchRecs(true);
               }}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-              title="Clear search"
-            >
-              <X className="w-2.5 h-2.5" />
-            </button>
-          )}
-
-          {/* Mobile Recommendations Dropdown */}
-          {showMobileSearchRecs && (
-            <SearchRecommendationsDropdown
-              searchQuery={searchQuery}
-              onSelectQuery={(q) => {
-                setSearchQuery(q);
-                setShowMobileSearchRecs(false);
-              }}
-              onSelectProperty={(p) => {
-                setShowMobileSearchRecs(false);
-                onSelectProperty?.(p);
-              }}
-              properties={properties}
-              availableAmenities={availableAmenities}
-              onClose={() => setShowMobileSearchRecs(false)}
-              onOpenFilters={openFilterModal}
+              placeholder="Search pad, amenities (Aircon, Desk) or checklist..."
+              className={`w-full pl-9 pr-8 py-2 text-xs rounded-xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 ${
+                showMobileSearchRecs
+                  ? 'border-[#0b1a30] ring-2 ring-[#0b1a30]/20 bg-white shadow-sm'
+                  : 'bg-slate-50 border border-slate-200'
+              }`}
             />
-          )}
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setShowMobileSearchRecs(true);
+                }}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
+                title="Clear search"
+              >
+                <X className="w-2.5 h-2.5" />
+              </button>
+            )}
+          </div>
+
+          {/* AI needs search (mobile) */}
+          <button
+            type="button"
+            onClick={() => {
+              setShowMobileSearchRecs(false);
+              onOpenAiSearch?.(searchQuery);
+            }}
+            title="AI Needs Search"
+            className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-blue-700 text-white flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
+          >
+            <Sparkles className="w-4 h-4 text-amber-300" />
+          </button>
         </div>
+
+        {/* Mobile Recommendations Dropdown */}
+        {showMobileSearchRecs && (
+          <SearchRecommendationsDropdown
+            searchQuery={searchQuery}
+            onSelectQuery={(q) => {
+              setSearchQuery(q);
+              setShowMobileSearchRecs(false);
+            }}
+            onSelectProperty={(p) => {
+              setShowMobileSearchRecs(false);
+              onSelectProperty?.(p);
+            }}
+            properties={properties}
+            availableAmenities={availableAmenities}
+            onClose={() => setShowMobileSearchRecs(false)}
+            onOpenFilters={openFilterModal}
+            onAskAi={(text) => {
+              setShowMobileSearchRecs(false);
+              onOpenAiSearch?.(text);
+            }}
+          />
+        )}
       </div>
     </header>
   );

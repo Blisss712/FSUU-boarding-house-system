@@ -18,6 +18,7 @@ import SocialLinks from './SocialLinks';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { padHasCurfew } from '../utils/curfew';
+import { getChecklistVerifiedCount, getStudentChecklist } from '../utils/checklist';
 
 export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onViewLandlord, onOpenAuth, onOpenChat }) {
   const { user } = useAuth();
@@ -1140,8 +1141,10 @@ export function AdminAuditPortalView({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {filteredProperties.map(p => {
               const isVerified = Boolean(p.badges?.isUriosVerified);
-              const verifiedItems = p.badges?.verifiedItems || {};
-              const verifiedItemCount = Object.values(verifiedItems).filter(Boolean).length;
+              // Count the six checklist items, not every stray key (legacy rows
+              // stored the building-condition verdict as `distance`).
+              const verifiedItemCount = getChecklistVerifiedCount(p);
+              const claims = getStudentChecklist(p);
 
               return (
                 <div
@@ -1202,12 +1205,12 @@ export function AdminAuditPortalView({
                       </span>
                     </div>
                     <div className="grid grid-cols-3 gap-1.5 text-[10px] font-semibold text-slate-700">
-                      <span className="truncate">☀️🌧️ {p.buildingCondition?.status || 'Good Condition (Rain/Shine)'}</span>
-                      <span className="truncate">🛡️ {p.floodRating?.isFloodFree ? 'Flood-Safe' : 'Watch Zone'}</span>
-                      <span className="truncate">💧 {p.waterSystem?.hasBoosterPump ? 'Booster Pump' : 'Tap Only'}</span>
-                      <span className="truncate">⚡ {p.powerSystem?.hasSolarBackup ? 'Solar Backup' : 'Grid'}</span>
-                      <span className="truncate">📶 DITO • Smart • Globe</span>
-                      <span className="truncate">🌐 {p.wifiAudit?.hasWifi ? `${p.wifiAudit.downloadMbps} Mbps` : 'No Wi-Fi'}</span>
+                      <span className="truncate">☀️🌧️ {claims.goodCondition.declared ? claims.goodCondition.displayStatus : 'Condition n/d'}</span>
+                      <span className="truncate">🛡️ {claims.floodSafe.declared ? (claims.floodSafe.isSafe ? 'Flood-Safe' : 'Watch Zone') : 'Flood n/d'}</span>
+                      <span className="truncate">💧 {claims.waterSystem.hasBooster ? 'Booster Pump' : claims.waterSystem.hasTank ? 'Reserve Tank' : claims.waterSystem.declared ? 'Tap Only' : 'Water n/d'}</span>
+                      <span className="truncate">⚡ {claims.brownoutResilience.hasSolar ? 'Solar Backup' : claims.brownoutResilience.hasGenerator ? 'Generator' : claims.brownoutResilience.declared ? 'Grid Only' : 'Power n/d'}</span>
+                      <span className="truncate">📶 {claims.mobileData.declared ? `DITO • Smart • Globe (${claims.mobileData.carrierCount}/3)` : 'Signal n/d'}</span>
+                      <span className="truncate">🌐 {claims.wifi.hasWifi ? `${claims.wifi.downloadMbps || '—'} Mbps` : claims.wifi.declared ? 'No Wi-Fi' : 'Wi-Fi n/d'}</span>
                     </div>
                   </div>
 
