@@ -33,6 +33,7 @@ export default function PropertyCard({
     price,
     priceSubtext,
     rating,
+    reviewCount,
     landlord,
     images
   } = property;
@@ -130,9 +131,19 @@ export default function PropertyCard({
                 <span className="text-slate-300">•</span>
                 <span>{roomType}</span>
               </div>
-              <div className="flex items-center gap-1 bg-amber-50 text-amber-800 text-[11px] font-extrabold px-2 py-0.5 rounded-lg border border-amber-200">
+              <div
+                className="flex items-center gap-1 bg-amber-50 text-amber-800 text-[11px] font-extrabold px-2 py-0.5 rounded-lg border border-amber-200"
+                title="Student rating for this boarding house"
+              >
                 <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                <span>{rating.toFixed(1)}</span>
+                {Number(reviewCount) > 0 ? (
+                  <>
+                    <span>{Number(rating || 0).toFixed(1)}</span>
+                    <span className="text-[9px] font-semibold text-amber-700">({reviewCount})</span>
+                  </>
+                ) : (
+                  <span>No ratings</span>
+                )}
               </div>
             </div>
 

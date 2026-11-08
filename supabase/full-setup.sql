@@ -192,6 +192,11 @@ CREATE TABLE IF NOT EXISTS tenancy (
   "isActive" INTEGER DEFAULT 1
 );
 
+-- Tenancy lifecycle status (pending -> active -> ended). Added by
+-- supabase/add-tenancy-approval.sql on older projects; included here so
+-- fresh installations keep the whole workflow in one script.
+ALTER TABLE tenancy ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
+
 -- 9. CURFEW SLIPS TABLE
 CREATE TABLE IF NOT EXISTS curfew_slips (
   id TEXT PRIMARY KEY,
@@ -225,6 +230,22 @@ CREATE TABLE IF NOT EXISTS receipts (
   status TEXT DEFAULT 'Verified Official Escrow'
 );
 
+-- 11. STUDENT RATINGS FOR BOARDING HOUSES
+-- Only students who actually boarded a property may rate it. Everyone
+-- else may read the ratings. See supabase/add-property-reviews.sql.
+CREATE TABLE IF NOT EXISTS property_reviews (
+  id TEXT PRIMARY KEY,
+  "propertyId" TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  "userId" TEXT NOT NULL,
+  "studentName" TEXT,
+  course TEXT,
+  rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+  comment TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE("propertyId", "userId")
+);
+
 -- ============================================================
 -- INDEXES
 -- ============================================================
@@ -240,6 +261,8 @@ CREATE INDEX IF NOT EXISTS idx_curfew_user ON curfew_slips("userId");
 CREATE INDEX IF NOT EXISTS idx_curfew_property ON curfew_slips("propertyId");
 CREATE INDEX IF NOT EXISTS idx_curfew_status ON curfew_slips(status);
 CREATE INDEX IF NOT EXISTS idx_receipts_user ON receipts("userId");
+CREATE INDEX IF NOT EXISTS idx_property_reviews_property ON property_reviews("propertyId");
+CREATE INDEX IF NOT EXISTS idx_property_reviews_user ON property_reviews("userId");
 
 -- ============================================================
 -- SUPABASE AUTH TRIGGER: AUTO-CREATE PUBLIC.USERS PROFILE
@@ -306,6 +329,7 @@ ALTER TABLE saved_properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenancy ENABLE ROW LEVEL SECURITY;
 ALTER TABLE curfew_slips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE property_reviews ENABLE ROW LEVEL SECURITY;
 
 -- Drop previous policies to prevent duplicates on re-run.
 -- NOTE: the messaging tables are excluded on purpose. Their policies are
@@ -347,6 +371,34 @@ AS $$
       FROM public.properties p
      WHERE p.id = prop_id
        AND COALESCE(p.landlord->>'userId', '') = COALESCE(auth.uid()::text, '')
+  );
+$$;
+
+-- Helper: has the caller actually boarded this property? (Only boarders may
+-- rate a boarding house; pending/rejected applicants do not count.)
+CREATE OR REPLACE FUNCTION public.has_boarded(prop_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.tenancy t
+     WHERE t."propertyId" = prop_id
+       AND (
+         t."userId" = COALESCE(auth.uid()::text, '')
+         OR t."userId" = COALESCE(
+           (SELECT u.id
+              FROM public.users u
+             WHERE lower(u.email) = lower(COALESCE(auth.jwt() ->> 'email', ''))
+             LIMIT 1),
+           ''
+         )
+       )
+       AND (
+         t."isActive" = 1
+         OR COALESCE(to_jsonb(t) ->> 'status', '') = 'ended'
+       )
   );
 $$;
 
@@ -414,6 +466,16 @@ CREATE POLICY "receipts_select" ON receipts FOR SELECT USING ("userId" = auth.ui
 CREATE POLICY "receipts_insert" ON receipts FOR INSERT WITH CHECK ("userId" = auth.uid()::text OR public.is_admin());
 CREATE POLICY "receipts_update" ON receipts FOR UPDATE USING ("userId" = auth.uid()::text OR public.is_admin());
 CREATE POLICY "receipts_delete" ON receipts FOR DELETE USING ("userId" = auth.uid()::text OR public.is_admin());
+
+-- Boarding-house ratings: public read, write only for students who boarded.
+CREATE POLICY "property_reviews_select" ON property_reviews FOR SELECT USING (true);
+CREATE POLICY "property_reviews_insert" ON property_reviews FOR INSERT
+  WITH CHECK ("userId" = auth.uid()::text AND public.has_boarded("propertyId"));
+CREATE POLICY "property_reviews_update" ON property_reviews FOR UPDATE
+  USING  ("userId" = auth.uid()::text)
+  WITH CHECK ("userId" = auth.uid()::text AND public.has_boarded("propertyId"));
+CREATE POLICY "property_reviews_delete" ON property_reviews FOR DELETE
+  USING ("userId" = auth.uid()::text OR public.is_admin());
 
 
 -- ============================================================

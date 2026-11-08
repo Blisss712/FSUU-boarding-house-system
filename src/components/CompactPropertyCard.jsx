@@ -23,6 +23,7 @@ export default function CompactPropertyCard({
     price,
     priceSubtext,
     rating,
+    reviewCount,
     images,
     landlord
   } = property;
@@ -89,9 +90,14 @@ export default function CompactPropertyCard({
                 <span className="text-[#854d0e] font-semibold truncate">
                   {shortLocation} • {roomType}
                 </span>
-                <span className="flex items-center gap-0.5 bg-amber-50 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-amber-200 shrink-0 ml-1">
+                <span
+                  className="flex items-center gap-0.5 bg-amber-50 text-amber-800 text-[10px] font-extrabold px-1.5 py-0.5 rounded border border-amber-200 shrink-0 ml-1"
+                  title="Student rating for this boarding house"
+                >
                   <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
-                  {rating.toFixed(1)}
+                  {Number(reviewCount) > 0
+                    ? `${Number(rating || 0).toFixed(1)} (${reviewCount})`
+                    : 'No ratings'}
                 </span>
               </div>
 

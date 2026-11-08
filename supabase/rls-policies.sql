@@ -63,6 +63,34 @@ AS $$
   );
 $$;
 
+-- True when the caller actually boarded a property (active or ended tenancy).
+-- Pending/rejected applications do not qualify.
+CREATE OR REPLACE FUNCTION public.has_boarded(prop_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+      FROM public.tenancy t
+     WHERE t."propertyId" = prop_id
+       AND (
+         t."userId" = COALESCE(auth.uid()::text, '')
+         OR t."userId" = COALESCE(
+           (SELECT u.id
+              FROM public.users u
+             WHERE lower(u.email) = lower(COALESCE(auth.jwt() ->> 'email', ''))
+             LIMIT 1),
+           ''
+         )
+       )
+       AND (
+         t."isActive" = 1
+         OR COALESCE(to_jsonb(t) ->> 'status', '') = 'ended'
+       )
+  );
+$$;
+
 -- ------------------------------------------------------------
 -- Remove the old permissive policies (idempotent)
 -- The messaging tables are skipped on purpose: their policies belong to
@@ -212,6 +240,28 @@ CREATE POLICY "receipts_update" ON receipts FOR UPDATE
   USING ("userId" = auth.uid()::text OR public.is_admin());
 
 CREATE POLICY "receipts_delete" ON receipts FOR DELETE
+  USING ("userId" = auth.uid()::text OR public.is_admin());
+
+-- ------------------------------------------------------------
+-- property_reviews — public read; write only for students who boarded
+-- ------------------------------------------------------------
+CREATE POLICY "property_reviews_select" ON property_reviews FOR SELECT
+  USING (true);
+
+CREATE POLICY "property_reviews_insert" ON property_reviews FOR INSERT
+  WITH CHECK (
+    "userId" = auth.uid()::text
+    AND public.has_boarded("propertyId")
+  );
+
+CREATE POLICY "property_reviews_update" ON property_reviews FOR UPDATE
+  USING ("userId" = auth.uid()::text)
+  WITH CHECK (
+    "userId" = auth.uid()::text
+    AND public.has_boarded("propertyId")
+  );
+
+CREATE POLICY "property_reviews_delete" ON property_reviews FOR DELETE
   USING ("userId" = auth.uid()::text OR public.is_admin());
 
 -- ------------------------------------------------------------

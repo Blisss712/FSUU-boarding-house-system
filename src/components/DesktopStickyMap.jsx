@@ -69,8 +69,10 @@ export default function DesktopStickyMap({
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between text-xs mb-0.5">
               <span className="text-[#854d0e] font-bold truncate">{activeProperty.shortLocation}</span>
-              <span className="bg-[#fef3c7] text-[#78350f] text-[11px] font-extrabold px-1.5 py-0.2 rounded border border-[#fde68a]">
-                ★ {Number(activeProperty.rating || 0).toFixed(1)}
+              <span className="bg-[#fef3c7] text-[#78350f] text-[11px] font-extrabold px-1.5 py-0.2 rounded border border-[#fde68a]" title="Student rating for this boarding house">
+                {Number(activeProperty.reviewCount) > 0
+                  ? `★ ${Number(activeProperty.rating || 0).toFixed(1)} (${activeProperty.reviewCount})`
+                  : '★ No ratings'}
               </span>
             </div>
 

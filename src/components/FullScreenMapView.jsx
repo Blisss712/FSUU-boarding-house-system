@@ -73,8 +73,10 @@ export default function FullScreenMapView({
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between text-[11px] mb-0.5">
               <span className="text-[#854d0e] font-bold truncate">{activeProperty.shortLocation}</span>
-              <span className="font-extrabold text-[#78350f] bg-[#fef3c7] px-1.5 rounded text-[10px]">
-                ★ {Number(activeProperty.rating || 0).toFixed(1)}
+              <span className="font-extrabold text-[#78350f] bg-[#fef3c7] px-1.5 rounded text-[10px]" title="Student rating for this boarding house">
+                {Number(activeProperty.reviewCount) > 0
+                  ? `★ ${Number(activeProperty.rating || 0).toFixed(1)}`
+                  : '★ New'}
               </span>
             </div>
 

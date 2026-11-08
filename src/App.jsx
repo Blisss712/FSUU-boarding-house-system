@@ -261,53 +261,6 @@ export default function App() {
       // 0. Verification scope: "Urios Verified" only, or every posted listing.
       if (verificationScope === 'verified' && !isListingVerified(p)) return false;
 
-      // 1. Comprehensive Search: Pad Name, Area, Zone, Room, Landlord, ALL Amenities, and All 6 Checklist items
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesName = p.name?.toLowerCase().includes(q);
-        const matchesArea = p.area?.toLowerCase().includes(q);
-        const matchesZone = p.zone?.toLowerCase().includes(q);
-        const matchesRoom = p.roomType?.toLowerCase().includes(q);
-        const matchesGender = p.gender?.toLowerCase().includes(q);
-        const matchesLandlord = (p.landlord?.name || '').toLowerCase().includes(q);
-
-        // Search by Amenities
-        const matchesAmenity = (p.amenities || []).some(a => {
-          const str = typeof a === 'string' ? a : (a?.name || '');
-          return str.toLowerCase().includes(q);
-        });
-
-        // Checklist: Flood rating
-        const floodText = `${p.floodRating?.badge || ''} ${p.floodRating?.tagBadge || ''} ${p.floodRating?.description || ''} ${p.floodRating?.elevation || ''}`.toLowerCase();
-        const matchesFlood = floodText.includes(q) || (q.includes('flood') && p.floodRating?.isFloodFree);
-
-        // Checklist: Water system
-        const waterText = `${p.waterSystem?.badge || ''} ${p.waterSystem?.tankCapacity || ''} ${p.waterSystem?.description || ''}`.toLowerCase();
-        const matchesWater = waterText.includes(q) || (q.includes('booster') && p.waterSystem?.hasBoosterPump) || (q.includes('tank') && p.waterSystem?.hasReserveTank);
-
-        // Checklist: Power system
-        const powerText = `${p.powerSystem?.badge || ''} ${p.powerSystem?.description || ''}`.toLowerCase();
-        const matchesPower = powerText.includes(q) || (q.includes('solar') && p.powerSystem?.hasSolarBackup) || (q.includes('generator') && p.powerSystem?.hasGenerator);
-
-        // Checklist: Wi-Fi & Carrier signals
-        const carriers = p.wifiAudit?.carrierSignals || {};
-        const carrierStr = Object.entries(carriers).map(([k, v]) => `${k} ${v}`).join(' ').toLowerCase();
-        const wifiText = `${p.wifiAudit?.provider || ''} ${p.wifiAudit?.badge || ''} ${p.wifiAudit?.ratingBadge || ''} ${carrierStr}`.toLowerCase();
-        const matchesWifi = wifiText.includes(q);
-
-        // Checklist: Gate proximities & commute
-        const gateText = `${p.gateProximities?.mainSFGate?.label || ''} ${p.gateProximities?.jcAquinoGate?.label || ''} ${p.gateProximities?.primaryGate || ''}`.toLowerCase();
-        const matchesGate = gateText.includes(q);
-
-        // House rules
-        const rulesText = (p.rules || []).map(r => typeof r === 'string' ? r : `${r.title || ''} ${r.desc || ''}`).join(' ').toLowerCase();
-        const matchesRules = rulesText.includes(q);
-
-        if (!matchesName && !matchesArea && !matchesZone && !matchesRoom && !matchesGender && !matchesLandlord && !matchesAmenity && !matchesFlood && !matchesWater && !matchesPower && !matchesWifi && !matchesGate && !matchesRules) {
-          return false;
-        }
-      }
-
       // Campus Filter
       if (selectedCampus !== 'all' && p.campusId !== selectedCampus) {
         return false;
@@ -412,14 +365,13 @@ export default function App() {
       return true;
     }).sort((a, b) => {
       if (sortBy === 'price-asc') return a.price - b.price;
-      if (sortBy === 'rating') return b.rating - a.rating;
+      if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
       const distA = a.gateProximities?.mainSFGate?.distanceMeters || 9999;
       const distB = b.gateProximities?.mainSFGate?.distanceMeters || 9999;
       return distA - distB;
     });
   }, [
     properties,
-    searchQuery,
     selectedCampus,
     selectedZone,
     selectedRoomType,
@@ -606,6 +558,9 @@ export default function App() {
   const openAiNeeds = useCallback((seed = '') => {
     setAiSearchSeed(typeof seed === 'string' ? seed : '');
     setAiSearchOpen(true);
+    // The header input is only a draft that launches AI search — clear it once
+    // the sentence has been handed to the panel.
+    setSearchQuery('');
   }, []);
 
   const clearAiNeeds = useCallback(() => {
@@ -691,12 +646,6 @@ export default function App() {
         onLogin={() => setAuthModal('login')}
         onSignup={() => setAuthModal('signup')}
         onLogout={logout}
-        properties={properties}
-        availableAmenities={availableAmenities}
-        onSelectProperty={(property) => {
-          setSelectedProperty(property);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
         onOpenAiSearch={openAiNeeds}
       />
 
@@ -759,6 +708,16 @@ export default function App() {
           }}
           onOpenAuth={(mode) => setAuthModal(mode)}
           onUpdateProperty={handleEditProperty}
+          onPropertyRated={(propertyId, rating, reviewCount) => {
+            const patch = (list) => list.map(p => (
+              p.id === propertyId ? { ...p, rating, reviewCount } : p
+            ));
+            setProperties(patch);
+            setMyListings(patch);
+            setSelectedProperty(prev => (
+              prev && prev.id === propertyId ? { ...prev, rating, reviewCount } : prev
+            ));
+          }}
         />
       ) : activeTab === 'audits' && (user?.role === 'admin' || user?.isAdmin) ? (
         <div className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">

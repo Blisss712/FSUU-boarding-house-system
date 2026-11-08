@@ -8,11 +8,10 @@ import {
   Zap, 
   Footprints, 
   CloudSun, 
-  Star, 
+  Star,
   Calendar, 
   Clock, 
   Users, 
-  Volume2, 
   Lock, 
   Check, 
   Signal, 
@@ -34,6 +33,7 @@ import BoardUnitModal from './BoardUnitModal';
 import AdminAuditModal from './AdminAuditModal';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import PadEditorModal from './PadEditorModal';
+import PropertyReviews from './PropertyReviews';
 import PropertyMap from './PropertyMap';
 import { resolveCoordinates, hasExactCoordinates } from '../lib/mapConfig';
 import { padHasCurfew } from '../utils/curfew';
@@ -54,6 +54,7 @@ export default function PadDetails({
   onOpenAuth,
   onOpenChat,
   onUpdateProperty,
+  onPropertyRated,
   appliances: propAppliances
 }) {
   const { user } = useAuth();
@@ -96,14 +97,13 @@ export default function PadDetails({
     priceSubtext = '/month',
     advanceDeposit = '1 Month Advance, 1 Month Deposit',
     minContract = '1 Semester (5 Months)',
-    rating = 4.8,
-    reviewCount = 12,
+    rating = 0,
+    reviewCount = 0,
     landlord: rawLandlord = {},
     images: rawImages = [],
     commuteSteps: rawCommute = [],
     amenities: rawAmenities = [],
     rules: rawRules = [],
-    vibeChecks: rawVibe = {},
     badges = {}
   } = propToUse;
 
@@ -172,12 +172,13 @@ export default function PadDetails({
   // Pads with no gate curfew also have no digital curfew pass feature.
   const hasCurfew = padHasCurfew(propToUse);
 
-  const vibeChecks = {
-    studyNoise: 4.5,
-    crCleanliness: 4.8,
-    curfewFlex: 4.6,
-    studentTestimonial: 'Quiet environment ideal for nursing and engineering students during exam weeks.',
-    ...rawVibe
+  const handleRatingUpdated = (nextRating, nextReviewCount) => {
+    setCurrentProp(prev => ({
+      ...(prev || propToUse),
+      rating: Number(nextRating) || 0,
+      reviewCount: Number(nextReviewCount) || 0
+    }));
+    onPropertyRated?.(propToUse.id, nextRating, nextReviewCount);
   };
 
   const toggleAppliance = (id) => {
@@ -349,6 +350,19 @@ export default function PadDetails({
               <p className="text-xs sm:text-sm text-slate-500 mt-1 font-medium flex items-center gap-1">
                 <span>📍 {area}</span>
               </p>
+
+              {/* Boarding-house rating from students who actually boarded here */}
+              <div className="mt-2 flex items-center gap-2 flex-wrap">
+                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-amber-50 border border-amber-200 text-amber-900 text-xs font-black">
+                  <Star className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
+                  {reviewCount > 0 ? `${Number(rating).toFixed(1)} / 5` : 'No ratings yet'}
+                </span>
+                <span className="text-[11px] font-semibold text-slate-500">
+                  {reviewCount > 0
+                    ? `${reviewCount} student rating${reviewCount === 1 ? '' : 's'} · boarders only`
+                    : 'Only verified boarders can rate this boarding house'}
+                </span>
+              </div>
             </div>
 
             {/* QA Inspected Banner */}
@@ -511,11 +525,6 @@ export default function PadDetails({
                   onOpenChat={onOpenChat}
                   onOpenAuth={onOpenAuth}
                 />
-                <div className="flex items-center gap-1 bg-[#fef3c7] text-[#78350f] px-3 py-1.5 rounded-2xl text-xs font-black border border-[#fde68a]">
-                  <Star className="w-3.5 h-3.5 fill-[#78350f] text-[#78350f]" />
-                  <span>{(Number(rating) || 4.8).toFixed(1)}</span>
-                  <span className="text-[#92400e] font-normal">({reviewCount})</span>
-                </div>
                 <div className="w-7 h-7 rounded-full bg-slate-100 group-hover/landlord:bg-blue-50 text-slate-400 group-hover/landlord:text-blue-600 flex items-center justify-center transition-colors">
                   <ChevronRight className="w-4 h-4" />
                 </div>
@@ -1193,40 +1202,12 @@ export default function PadDetails({
               </div>
             </div>
 
-            {/* Verified Tenant Vibe Checks */}
-            <div className="bg-white rounded-3xl p-5 border border-slate-200/90 shadow-xs space-y-3">
-              <div className="flex items-center justify-between">
-                <h3 className="font-extrabold text-base text-[#0b1a30] flex items-center gap-2">
-                  <Volume2 className="w-4 h-4 text-indigo-600" />
-                  Verified Tenant "Vibe Checks"
-                </h3>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  @urios.edu.ph Verified
-                </span>
-              </div>
-
-              <div className="space-y-2 text-xs">
-                <div className="flex justify-between font-bold">
-                  <span>Noise Level for Studying</span>
-                  <span className="text-indigo-600">{vibeChecks.studyNoise} / 5.0</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-indigo-600 h-full rounded-full" style={{ width: `${(vibeChecks.studyNoise / 5) * 100}%` }}></div>
-                </div>
-
-                <div className="flex justify-between font-bold pt-1">
-                  <span>Cleanliness of Shared CR</span>
-                  <span className="text-blue-600">{vibeChecks.crCleanliness} / 5.0</span>
-                </div>
-                <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full" style={{ width: `${(vibeChecks.crCleanliness / 5) * 100}%` }}></div>
-                </div>
-
-                <div className="p-3 bg-indigo-50/50 rounded-2xl border border-indigo-100 text-xs text-indigo-950 italic mt-2">
-                  {vibeChecks.studentTestimonial}
-                </div>
-              </div>
-            </div>
+            {/* Student ratings — verified boarders only, everyone can read */}
+            <PropertyReviews
+              property={propToUse}
+              onOpenAuth={onOpenAuth}
+              onRatingUpdated={handleRatingUpdated}
+            />
           </div>
 
           {/* ======================================================== */}

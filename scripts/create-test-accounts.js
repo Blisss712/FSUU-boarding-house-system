@@ -186,7 +186,7 @@ async function ensureListing(account, authUser) {
     priceSubtext: '/month',
     advanceDeposit: '1 month',
     minContract: '6 months',
-    rating: 5.0,
+    rating: 0,
     reviewCount: 0,
     landlord,
     images: [],

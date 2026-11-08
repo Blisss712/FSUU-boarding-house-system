@@ -25,7 +25,7 @@ Built specifically for the student and landlord community of **Father Saturnino 
 4. **Trust, Safety & Landlord Automation:**
    - **"Parent Peace-of-Mind" Share Card:** Generates a clean, printable or Messenger-ready summary highlighting CCTV, curfews, resident caretaker status, and fire exits.
    - **SMS One-Tap Vacancy Bot for Non-Tech Landlords:** Automated bi-weekly check-in via Philippine SMS (*"Reply 1 for Yes, 0 for Full"*) keeping listings accurate without requiring older landlords to use an app.
-   - **Verified Tenant "Vibe Checks":** Exclusive ratings from verified `@urios.edu.ph` students on Study Noise, Landlady Strictness, CR Cleanliness, and Kitchen Access.
+   - **Verified Boarder Ratings:** Students who actually boarded a boarding house can rate it from 1–5 stars and leave a short review. Everyone can read the ratings, but only verified boarders can write one (enforced in the database).
 
 5. **AI Needs Search (Google Gemini):**
    - Type one sentence — *"barato nga solo room duol sa gate, walay baha, kusog ang wifi"* — and the AI lists the needs inside it (budget, zone, flood-safety, Wi-Fi speed…) and shows which pads actually prove each one.
@@ -320,7 +320,7 @@ for 30 minutes per query + catalog snapshot, so re-opening a search is instant.
 | `src/services/aiSearch.js` | Browser client: key/status probe, proxy call with fallback, timeouts, typed errors, 30-minute cache. |
 | `scripts/vite-ai-proxy.js` | Local Gemini proxy (dev + preview), model fallback, rate limit, error mapping. |
 | `src/components/AiNeedsSearchModal.jsx` | The needs panel: setup card, loading, needs list, ranked pads, apply. |
-| `src/App.jsx`, `src/components/Header.jsx`, `src/components/SearchRecommendationsDropdown.jsx` | Entry points, filter application, and the "needs you listed" banner on the feed. |
+| `src/App.jsx`, `src/components/Header.jsx` | Entry points (the header search box launches AI search), filter application, and the "needs you listed" banner on the feed. |
 
 **Limits & privacy**
 
@@ -344,6 +344,9 @@ precisely how listing data gets overwritten or removed by the wrong account.
   (a landlord can only modify their own listings; users can only modify their
   own profile; admins bypass via `user_metadata.isAdmin`).
 - Run it **after** `fix-accounts.sql` (it requires `landlord.userId` to be set).
+- Run `supabase/add-property-reviews.sql` to enable verified-boarder ratings.
+  The public can read ratings, but only a student with an active or ended
+  tenancy on that boarding house can insert or update one.
 - `full-setup.sql` now ships with the same hardened policies for fresh projects.
 
 ---
@@ -366,6 +369,7 @@ All database queries are handled directly via the official Supabase Client (`@su
 | `curfew_slips` | Digital curfew exemption slips for hospital/clinical duties |
 | `receipts` | Official verified rent escrow receipts |
 | `saved_properties` | Student bookmarks and saved boarding houses |
+| `property_reviews` | Student ratings (1–5 + review) for a boarding house; only students who boarded may write one |
 | `conversations` | Direct chats, manual group chats, and one automatic **pad group** per listing (`propertyId`) |
 | `conversation_members` | Chat participants, roles, and per-user read markers (pad groups stay in sync with tenancies) |
 | `messages` | Chat messages streamed live through Supabase Realtime |

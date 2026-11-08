@@ -56,11 +56,6 @@ export default function LandlordProfilePage({
   );
   const canSeeIdCard = isOwnProfile || isAdmin;
 
-  const avgRating = theirPads.length
-    ? (theirPads.reduce((s, p) => s + (p.rating || 0), 0) / theirPads.length).toFixed(1)
-    : null;
-
-  const totalReviews = theirPads.reduce((s, p) => s + (p.reviewCount || 0), 0);
   const totalAvailable = theirPads.reduce((s, p) => s + (p.availableCount || 0), 0);
 
   // Trust badge definitions
@@ -147,12 +142,6 @@ export default function LandlordProfilePage({
 
             {/* Quick stats */}
             <div className="flex flex-wrap gap-3 mt-3">
-              {avgRating && (
-                <div className="flex items-center gap-1.5 bg-white/10 rounded-xl px-3 py-1.5 text-white text-xs font-bold">
-                  <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                  {avgRating} avg · {totalReviews} reviews
-                </div>
-              )}
               <div className="flex items-center gap-1.5 bg-white/10 rounded-xl px-3 py-1.5 text-white text-xs font-bold">
                 <Home className="w-3.5 h-3.5 text-blue-300" />
                 {theirPads.length} listing{theirPads.length !== 1 ? 's' : ''}
@@ -353,10 +342,13 @@ export default function LandlordProfilePage({
                             {gateDistance.minutesLabel}
                           </span>
                         )}
-                        {pad.rating && (
+                        {pad.reviewCount > 0 && (
                           <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-600">
                             <Star className="w-3 h-3 fill-amber-500 text-amber-500" />
-                            {pad.rating.toFixed(1)}
+                            {Number(pad.rating || 0).toFixed(1)}
+                            <span className="text-slate-400 font-semibold">
+                              ({pad.reviewCount})
+                            </span>
                           </span>
                         )}
                       </div>

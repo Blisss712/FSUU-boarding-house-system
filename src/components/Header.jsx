@@ -1,6 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Search, SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X, Sparkles } from 'lucide-react';
-import SearchRecommendationsDropdown from './SearchRecommendationsDropdown';
+import React from 'react';
+import { SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X, Sparkles } from 'lucide-react';
 
 export default function Header({
   searchQuery,
@@ -13,46 +12,20 @@ export default function Header({
   onLogin,
   onSignup,
   onLogout,
-  // Search data props
-  properties = [],
-  availableAmenities = [],
-  onSelectProperty,
-  // AI needs search (sparkles button + dropdown entry point)
+  // AI needs search
   onOpenAiSearch
 }) {
-  const [showSearchRecs, setShowSearchRecs] = useState(false);
-  const [showMobileSearchRecs, setShowMobileSearchRecs] = useState(false);
-  const searchContainerRef = useRef(null);
-  const mobileSearchContainerRef = useRef(null);
+  const submitAiSearch = () => {
+    onOpenAiSearch?.(searchQuery);
+  };
 
-  // Handle click outside & escape key to close recommendation popovers
-  useEffect(() => {
-    function handleClickOutside(event) {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(event.target)) {
-        setShowSearchRecs(false);
-      }
-      if (mobileSearchContainerRef.current && !mobileSearchContainerRef.current.contains(event.target)) {
-        setShowMobileSearchRecs(false);
-      }
+  const handleKeyDown = (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      submitAiSearch();
     }
+  };
 
-    function handleKeyDown(event) {
-      if (event.key === 'Escape') {
-        setShowSearchRecs(false);
-        setShowMobileSearchRecs(false);
-      }
-    }
-
-    document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('touchstart', handleClickOutside);
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('touchstart', handleClickOutside);
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, []);
   return (
     <header className="sticky top-0 z-40 bg-white/95 backdrop-blur-md border-b border-slate-200/80 px-4 lg:px-8 py-3 shadow-2xs">
       <div className="max-w-[1700px] mx-auto flex items-center justify-between gap-4">
@@ -83,76 +56,40 @@ export default function Header({
           </div>
         </div>
 
-        {/* Center: Desktop Search */}
-        <div ref={searchContainerRef} className="flex-1 max-w-2xl hidden md:flex items-center gap-2 relative">
+        {/* Center: Desktop AI Search */}
+        <div className="flex-1 max-w-2xl hidden md:flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Sparkles className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-500" />
             <input
               type="text"
               value={searchQuery}
-              onFocus={() => setShowSearchRecs(true)}
-              onClick={() => setShowSearchRecs(true)}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setShowSearchRecs(true);
-              }}
-              placeholder="Search pad, zone, amenity (Aircon, Desk, Water) or checklist (Solar, Booster)..."
-              className={`w-full pl-9 pr-9 py-2.5 text-xs rounded-2xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 font-medium ${
-                showSearchRecs
-                  ? 'border-[#0b1a30] ring-2 ring-[#0b1a30]/20 bg-white shadow-sm'
-                  : 'bg-slate-50 hover:bg-slate-100/70 border border-slate-200'
-              }`}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask AI: describe your pad — budget, location, wifi, flood..."
+              aria-label="AI search"
+              className="w-full pl-9 pr-9 py-2.5 text-xs rounded-2xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 font-medium bg-slate-50 hover:bg-slate-100/70 border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:bg-white"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setShowSearchRecs(true);
-                }}
+                onClick={() => setSearchQuery('')}
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 rounded-full bg-slate-200 hover:bg-slate-300 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                title="Clear search"
+                title="Clear"
               >
                 <X className="w-3 h-3" />
               </button>
-            )}
-
-            {/* Desktop Recommendations Dropdown */}
-            {showSearchRecs && (
-              <SearchRecommendationsDropdown
-                searchQuery={searchQuery}
-                onSelectQuery={(q) => {
-                  setSearchQuery(q);
-                  setShowSearchRecs(false);
-                }}
-                onSelectProperty={(p) => {
-                  setShowSearchRecs(false);
-                  onSelectProperty?.(p);
-                }}
-                properties={properties}
-                availableAmenities={availableAmenities}
-                onClose={() => setShowSearchRecs(false)}
-                onOpenFilters={openFilterModal}
-                onAskAi={(text) => {
-                  setShowSearchRecs(false);
-                  onOpenAiSearch?.(text);
-                }}
-              />
             )}
           </div>
 
           {/* AI needs search: describe the pad you need in one sentence */}
           <button
             type="button"
-            onClick={() => {
-              setShowSearchRecs(false);
-              onOpenAiSearch?.(searchQuery);
-            }}
+            onClick={submitAiSearch}
             title="AI Needs Search — describe what you need and let AI list your needs"
             className="flex items-center gap-1.5 px-3 py-2.5 rounded-2xl bg-gradient-to-r from-violet-600 to-blue-700 hover:from-violet-700 hover:to-blue-800 text-white text-xs font-extrabold shadow-sm transition-all shrink-0 cursor-pointer"
           >
             <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-            <span>AI</span>
+            <span>AI Search</span>
           </button>
 
           <button
@@ -243,36 +180,26 @@ export default function Header({
         </div>
       </div>
 
-      {/* Mobile-Only Search Row */}
-      <div ref={mobileSearchContainerRef} className="md:hidden mt-2.5 relative">
+      {/* Mobile-Only AI Search Row */}
+      <div className="md:hidden mt-2.5">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+            <Sparkles className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-500" />
             <input
               type="text"
               value={searchQuery}
-              onFocus={() => setShowMobileSearchRecs(true)}
-              onClick={() => setShowMobileSearchRecs(true)}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setShowMobileSearchRecs(true);
-              }}
-              placeholder="Search pad, amenities (Aircon, Desk) or checklist..."
-              className={`w-full pl-9 pr-8 py-2 text-xs rounded-xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 ${
-                showMobileSearchRecs
-                  ? 'border-[#0b1a30] ring-2 ring-[#0b1a30]/20 bg-white shadow-sm'
-                  : 'bg-slate-50 border border-slate-200'
-              }`}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask AI: describe your pad..."
+              aria-label="AI search"
+              className="w-full pl-9 pr-8 py-2 text-xs rounded-xl focus:outline-none transition-all text-slate-900 placeholder:text-slate-400 bg-slate-50 border border-slate-200 focus:border-violet-500 focus:ring-2 focus:ring-violet-500/20 focus:bg-white"
             />
             {searchQuery && (
               <button
                 type="button"
-                onClick={() => {
-                  setSearchQuery('');
-                  setShowMobileSearchRecs(true);
-                }}
+                onClick={() => setSearchQuery('')}
                 className="absolute right-2.5 top-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center transition-colors cursor-pointer"
-                title="Clear search"
+                title="Clear"
               >
                 <X className="w-2.5 h-2.5" />
               </button>
@@ -282,39 +209,13 @@ export default function Header({
           {/* AI needs search (mobile) */}
           <button
             type="button"
-            onClick={() => {
-              setShowMobileSearchRecs(false);
-              onOpenAiSearch?.(searchQuery);
-            }}
+            onClick={submitAiSearch}
             title="AI Needs Search"
             className="w-9 h-9 rounded-xl bg-gradient-to-br from-violet-600 to-blue-700 text-white flex items-center justify-center shadow-sm shrink-0 cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-amber-300" />
           </button>
         </div>
-
-        {/* Mobile Recommendations Dropdown */}
-        {showMobileSearchRecs && (
-          <SearchRecommendationsDropdown
-            searchQuery={searchQuery}
-            onSelectQuery={(q) => {
-              setSearchQuery(q);
-              setShowMobileSearchRecs(false);
-            }}
-            onSelectProperty={(p) => {
-              setShowMobileSearchRecs(false);
-              onSelectProperty?.(p);
-            }}
-            properties={properties}
-            availableAmenities={availableAmenities}
-            onClose={() => setShowMobileSearchRecs(false)}
-            onOpenFilters={openFilterModal}
-            onAskAi={(text) => {
-              setShowMobileSearchRecs(false);
-              onOpenAiSearch?.(text);
-            }}
-          />
-        )}
       </div>
     </header>
   );

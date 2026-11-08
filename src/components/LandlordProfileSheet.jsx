@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Phone, BadgeCheck, Home, Star, MapPin, ArrowRight } from 'lucide-react';
+import { X, Phone, BadgeCheck, Home, MapPin, ArrowRight } from 'lucide-react';
 import { getGateDistance } from '../utils/distance';
 import SocialLinks from './SocialLinks';
 import MessageLandlordButton from './MessageLandlordButton';
@@ -81,12 +81,6 @@ export default function LandlordProfileSheet({
                   <Home className="w-3 h-3" />
                   {theirPads.length} listing{theirPads.length !== 1 ? 's' : ''}
                 </span>
-                {theirPads.length > 0 && (
-                  <span className="flex items-center gap-1 text-[11px] text-blue-100">
-                    <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-                    {(theirPads.reduce((s, p) => s + (p.rating || 0), 0) / theirPads.length).toFixed(1)} avg
-                  </span>
-                )}
               </div>
             </div>
           </div>

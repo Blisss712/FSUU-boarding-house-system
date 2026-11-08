@@ -383,6 +383,54 @@ export const api = {
   },
 
   /**
+   * Overlay each property with the aggregate of its STUDENT ratings.
+   *
+   * Only rows in `property_reviews` count, so legacy/demo `rating` values on
+   * the property row can never masquerade as a boarder's rating. Properties
+   * with no reviews report 0 / 0 and the UI renders "No ratings yet".
+   */
+  async _attachStudentRatings(rows = []) {
+    if (!Array.isArray(rows) || rows.length === 0) return rows;
+
+    const ids = rows.map(row => row?.id).filter(Boolean);
+    if (ids.length === 0) return rows;
+
+    const withNoRatings = (list) => list.map(row => ({ ...row, rating: 0, reviewCount: 0 }));
+    const buckets = new Map();
+
+    try {
+      const { data, error } = await supabase
+        .from('property_reviews')
+        .select('propertyId, rating')
+        .in('propertyId', ids);
+
+      if (error || !Array.isArray(data)) return withNoRatings(rows);
+
+      for (const review of data) {
+        const key = String(review.propertyId);
+        const bucket = buckets.get(key) || { total: 0, count: 0 };
+        bucket.total += Number(review.rating) || 0;
+        bucket.count += 1;
+        buckets.set(key, bucket);
+      }
+    } catch {
+      // A project that has not run supabase/add-property-reviews.sql simply
+      // shows no ratings instead of failing the whole feed.
+      return withNoRatings(rows);
+    }
+
+    return rows.map(row => {
+      const bucket = buckets.get(String(row?.id));
+      const count = bucket?.count || 0;
+      return {
+        ...row,
+        rating: count ? Number((bucket.total / count).toFixed(1)) : 0,
+        reviewCount: count
+      };
+    });
+  },
+
+  /**
    * All landlord accounts, for the Auditor tab. Returns public profile rows
    * (password hashes removed) including their verification state.
    */
@@ -647,7 +695,9 @@ export const api = {
       throw new ApiError(`Supabase error: ${error.message}`, 500);
     }
 
-    const formatted = await this._attachLandlordVerifications((data || []).map(sanitizeRow));
+    const formatted = await this._attachLandlordVerifications(
+      await this._attachStudentRatings((data || []).map(sanitizeRow))
+    );
     return this._filterProperties(formatted, params);
   },
 
@@ -884,7 +934,8 @@ export const api = {
     }
 
     const owned = (data || []).map(sanitizeRow).filter(p => landlordOwnsProperty(p, identity));
-    return this._attachLandlordVerifications(owned);
+    const rated = await this._attachStudentRatings(owned);
+    return this._attachLandlordVerifications(rated);
   },
 
   async getPropertyById(id) {
@@ -900,8 +951,159 @@ export const api = {
     }
 
     if (!data) return null;
-    const [enriched] = await this._attachLandlordVerifications([sanitizeRow(data)]);
+    const rated = await this._attachStudentRatings([sanitizeRow(data)]);
+    const [enriched] = await this._attachLandlordVerifications(rated);
     return enriched || null;
+  },
+
+  // ── Student ratings for a boarding house ──────────────────────────────────
+
+  /**
+   * True only when the signed-in student actually boarded this property.
+   * Pending and rejected applications do not qualify.
+   */
+  async _hasBoardedProperty(propertyId, candidateIds = []) {
+    if (!propertyId || !Array.isArray(candidateIds) || candidateIds.length === 0) return false;
+
+    try {
+      const { data, error } = await supabase
+        .from('tenancy')
+        .select('*')
+        .eq('propertyId', propertyId)
+        .in('userId', candidateIds);
+
+      if (error || !Array.isArray(data)) return false;
+
+      return data.some(row =>
+        Number(row.isActive) === 1 ||
+        String(row.status || '').toLowerCase() === 'ended'
+      );
+    } catch {
+      return false;
+    }
+  },
+
+  /**
+   * Public ratings for one boarding house plus the caller's write permission.
+   *
+   * Everyone (including signed-out visitors) gets the reviews and the average.
+   * `canRate` is true only for a student with an active or ended tenancy on
+   * this property; `myReview` is their existing rating, if any.
+   */
+  async getPropertyReviews(propertyId) {
+    if (!propertyId) throw new ApiError('A boarding house is required.', 400);
+
+    let reviews = [];
+    try {
+      const { data, error } = await supabase
+        .from('property_reviews')
+        .select('*')
+        .eq('propertyId', propertyId)
+        .order('createdAt', { ascending: false });
+
+      if (!error && Array.isArray(data)) reviews = data.map(sanitizeRow);
+    } catch {
+      reviews = [];
+    }
+
+    const reviewCount = reviews.length;
+    const rating = reviewCount
+      ? Number((reviews.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / reviewCount).toFixed(1))
+      : 0;
+
+    let authUser = null;
+    try {
+      const { data } = await supabase.auth.getUser();
+      authUser = data?.user || null;
+    } catch {
+      authUser = null;
+    }
+
+    let canRate = false;
+    let myReview = null;
+
+    if (authUser) {
+      const candidateIds = await getUserCandidateIds(authUser);
+      myReview = reviews.find(r => candidateIds.includes(String(r.userId))) || null;
+      canRate = await this._hasBoardedProperty(propertyId, candidateIds);
+    }
+
+    return {
+      success: true,
+      data: { reviews, rating, reviewCount, canRate, myReview }
+    };
+  },
+
+  /**
+   * Create or update the signed-in student's rating for a boarding house.
+   * The database enforces the same eligibility rule, so this cannot be
+   * bypassed with a direct API call.
+   */
+  async submitPropertyReview({ propertyId, rating, comment = '' } = {}) {
+    const { data: { user: authUser } } = await supabase.auth.getUser();
+    if (!authUser) throw new ApiError('Sign in to rate this boarding house.', 401);
+    if (!propertyId) throw new ApiError('A boarding house is required.', 400);
+
+    const value = Number(rating);
+    if (!Number.isFinite(value) || value < 1 || value > 5) {
+      throw new ApiError('Choose a rating from 1 to 5 stars.', 400);
+    }
+
+    const candidateIds = await getUserCandidateIds(authUser);
+    const canRate = await this._hasBoardedProperty(propertyId, candidateIds);
+    if (!canRate) {
+      throw new ApiError('Only students who have boarded this boarding house can rate it.', 403);
+    }
+
+    let profile = null;
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('name, course')
+        .eq('id', authUser.id)
+        .maybeSingle();
+      profile = data;
+    } catch {
+      profile = null;
+    }
+
+    const payload = {
+      // Deterministic id keeps one rating per student per property.
+      id: `review-${authUser.id}-${propertyId}`.slice(0, 180),
+      propertyId,
+      userId: authUser.id,
+      studentName: profile?.name || authUser.user_metadata?.name || 'Verified boarder',
+      course: profile?.course || '',
+      rating: Math.round(value),
+      comment: String(comment || '').trim().slice(0, 1200),
+      updatedAt: new Date().toISOString()
+    };
+
+    const { data, error } = await supabase
+      .from('property_reviews')
+      .upsert([payload], { onConflict: 'propertyId,userId' })
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      const blocked = /row-level security|permission denied|violates/i.test(error.message || '');
+      throw new ApiError(
+        blocked
+          ? 'Only students who have boarded this boarding house can rate it.'
+          : `Could not save your rating: ${error.message}`,
+        500
+      );
+    }
+
+    const refreshed = await this.getPropertyReviews(propertyId);
+    return {
+      success: true,
+      message: 'Your rating was saved.',
+      data: {
+        review: data ? sanitizeRow(data) : null,
+        ...refreshed.data
+      }
+    };
   },
 
   async updateAvailability(id, availableCount, statusTag, statusColor) {
@@ -958,8 +1160,8 @@ export const api = {
       priceSubtext: propData.priceSubtext || '/month',
       advanceDeposit: propData.advanceDeposit || '',
       minContract: propData.minContract || '',
-      rating: Number(propData.rating) || 0,
-      reviewCount: Number(propData.reviewCount) || 0,
+      rating: 0,
+      reviewCount: 0,
       landlord,
       images: Array.isArray(propData.images) ? propData.images : [],
       gateProximities: propData.gateProximities || {},
@@ -1058,7 +1260,7 @@ export const api = {
     const VALID_PROPERTY_COLUMNS = [
       'name', 'campusId', 'zone', 'area', 'shortLocation', 'roomType',
       'gender', 'statusTag', 'statusColor', 'availableCount', 'price',
-      'priceSubtext', 'advanceDeposit', 'minContract', 'rating', 'reviewCount',
+      'priceSubtext', 'advanceDeposit', 'minContract',
       'landlord', 'images', 'gateProximities', 'trikeFare', 'badges',
       'mapCoordinates', 'latitude', 'longitude', 'buildingCondition', 'floodRating', 'waterSystem', 'powerSystem',
       'wifiAudit', 'commuteSteps', 'amenities', 'rules', 'vibeChecks',
@@ -2289,14 +2491,14 @@ export const api = {
       const identity = { id: user.id, email: user.email };
       const wantedName = String(user.name || '').trim().toLowerCase();
 
-      profile.listings = (data || [])
+      profile.listings = (await this._attachStudentRatings((data || [])
         .map(sanitizeRow)
         .filter(prop => {
           if (landlordOwnsProperty(prop, identity)) return true;
           // Legacy rows that only carry the host's name in the JSON.
           const ownerName = String(prop.landlord?.name || '').trim().toLowerCase();
           return Boolean(wantedName && ownerName && ownerName === wantedName);
-        })
+        })))
         .map(prop => ({
           id: prop.id,
           name: prop.name,
@@ -2306,6 +2508,7 @@ export const api = {
           availableCount: Number(prop.availableCount) || 0,
           images: Array.isArray(prop.images) ? prop.images : [],
           rating: Number(prop.rating) || 0,
+          reviewCount: Number(prop.reviewCount) || 0,
           statusTag: prop.statusTag || ''
         }));
       return profile;

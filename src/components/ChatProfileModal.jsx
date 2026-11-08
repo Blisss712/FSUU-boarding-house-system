@@ -301,9 +301,12 @@ export default function ChatProfileModal({ account, onClose, onOpenProperty }) {
                                     <span className="text-[9.5px] text-slate-400 font-normal">{listing.priceSubtext}</span>
                                   </span>
                                   {listing.rating > 0 && (
-                                    <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700">
+                                    <span className="flex items-center gap-0.5 text-[10px] font-bold text-amber-700" title="Student rating for this boarding house">
                                       <Star className="w-2.5 h-2.5 fill-amber-500 text-amber-500" />
                                       {listing.rating.toFixed(1)}
+                                      {listing.reviewCount > 0 && (
+                                        <span className="text-slate-400 font-semibold">({listing.reviewCount})</span>
+                                      )}
                                     </span>
                                   )}
                                 </div>
