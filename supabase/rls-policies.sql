@@ -96,6 +96,9 @@ $$;
 -- The messaging tables are skipped on purpose: their policies belong to
 -- supabase/add-messaging.sql. Dropping them here left RLS enabled with no
 -- policy, which silently disabled every chat in the app.
+-- landlord_ids is skipped for the same reason: its private policies belong to
+-- supabase/add-landlord-valid-id.sql, and dropping them here broke every valid
+-- ID submission (42501 "new row violates row-level security policy").
 -- ------------------------------------------------------------
 DO $$
 DECLARE
@@ -105,7 +108,7 @@ BEGIN
     SELECT policyname, tablename
       FROM pg_policies
      WHERE schemaname = 'public'
-       AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats')
+       AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats', 'landlord_ids')
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
   END LOOP;

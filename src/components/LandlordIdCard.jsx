@@ -91,7 +91,14 @@ function PhotoPreview({ label, url, previewUrl }) {
  * - Everyone else never sees this card (the parent only renders it for the
  *   owner or an admin, and Supabase RLS enforces the same rule in the DB).
  */
-export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin = false }) {
+export default function LandlordIdCard({
+  landlord,
+  isOwnProfile = false,
+  isAdmin = false,
+  accountVerified = false,
+  onApproveAccount,
+  onReviewed
+}) {
   const { user } = useAuth();
   const targetId = landlord?.userId || (isOwnProfile ? user?.id : null);
 
@@ -102,6 +109,10 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
   const [reviewing, setReviewing] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectionReason, setRejectionReason] = useState('');
+  const [accountSaving, setAccountSaving] = useState(false);
+  const [accountError, setAccountError] = useState('');
 
   const [form, setForm] = useState({
     fullName: landlord?.name || '',
@@ -190,9 +201,17 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setSaving(true);
     setError('');
     setNotice('');
+
+    // Auditors verify a photo against the typed details. A number alone is not
+    // evidence, so a front photo is required before the submission can go in.
+    if (!frontFile && !record?.frontImagePath) {
+      setError('Attach a photo of the front of your valid ID. Auditors check the photo against the details you typed.');
+      return;
+    }
+
+    setSaving(true);
 
     try {
       let frontImagePath = record?.frontImagePath || null;
@@ -213,7 +232,12 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
       setRecord(saved);
       setEditing(false);
       resetPickedFiles();
-      setNotice('Valid ID submitted. Only FSUU admins and auditors can view it.');
+      setNotice(
+        saved?.accountVerificationRevoked
+          ? 'Valid ID resubmitted for review. Your Urios Verified badge is paused until an auditor approves the new ID.'
+          : 'Valid ID submitted for review. Only FSUU admins and auditors can view it.'
+      );
+      onReviewed?.(saved);
     } catch (err) {
       setError(err.message || 'Could not submit your valid ID. Please try again.');
     } finally {
@@ -221,19 +245,67 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
     }
   };
 
+  /**
+   * Step 1 decision. Approving the ID only unlocks step 2 — it never grants the
+   * Urios Verified badge by itself. Rejecting requires a reason (shown to the
+   * landlord) and, if the account was already approved, the API revokes it.
+   */
   const handleReview = async (status) => {
+    const reviewNotes = status === 'rejected' ? rejectionReason.trim() : '';
+
+    if (status === 'rejected' && !reviewNotes) {
+      setError('Add a short reason for rejecting the ID — the landlord sees it and can fix the submission.');
+      return;
+    }
+
     setReviewing(status);
     setError('');
+    setNotice('');
+
     try {
       const updated = await api.reviewLandlordId(targetId, {
         status,
-        reviewedBy: user?.name || 'FSUU Housing Committee Admin'
+        reviewedBy: user?.name || 'FSUU Housing Committee Admin',
+        reviewNotes
       });
+
       if (updated) setRecord(updated);
+      setRejectOpen(false);
+      setRejectionReason('');
+
+      if (status === 'rejected') {
+        setNotice(
+          updated?.accountVerificationRevoked
+            ? 'ID rejected. The account’s Urios Verified badge was revoked because its ID no longer passes review.'
+            : 'ID rejected. The landlord can resubmit a clearer photo or a different valid ID.'
+        );
+      } else {
+        setNotice('ID approved. Step 2 is unlocked — approve the landlord account below.');
+      }
+
+      onReviewed?.(updated);
     } catch (err) {
       setError(err.message || 'Could not update the ID review.');
     } finally {
       setReviewing('');
+    }
+  };
+
+  /** Step 2 decision — only reachable while the ID is approved. */
+  const handleApproveAccount = async () => {
+    if (!onApproveAccount) return;
+
+    setAccountSaving(true);
+    setAccountError('');
+    setNotice('');
+
+    try {
+      await onApproveAccount();
+      setNotice('Landlord account approved as Urios Verified. Every one of their listings now carries the badge.');
+    } catch (err) {
+      setAccountError(err.message || 'Could not approve the landlord account.');
+    } finally {
+      setAccountSaving(false);
     }
   };
 
@@ -251,27 +323,105 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
 
   // ── Admin / auditor view ─────────────────────────────────────
   if (isAdmin) {
+    const idApproved = record?.status === 'approved';
+    const idRejected = record?.status === 'rejected';
+    const hasPhoto = Boolean(record?.frontImagePath || record?.backImagePath);
+    // The badge only counts while the ID is approved — a stale users flag must
+    // never render as verified.
+    const effectiveAccountVerified = Boolean(accountVerified) && idApproved;
+
     return (
       <div className="bg-white rounded-2xl border border-purple-200 ring-1 ring-purple-100 shadow-xs p-4 space-y-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-[10px] font-bold text-purple-500 uppercase tracking-wide flex items-center gap-1">
               <Lock className="w-3 h-3" />
-              Valid ID — Auditor Only
+              Landlord verification — auditor only
             </p>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              Private record. Students and other landlords cannot see this.
+              Step 1 of 2. The account cannot be marked Urios Verified until this ID is approved.
             </p>
           </div>
           {record && <StatusChip status={record.status || 'pending'} />}
         </div>
+
+        {/* Process rail — the fixed order, visible at a glance */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className={`p-2 rounded-xl border flex items-start gap-2 ${
+            idApproved ? 'bg-emerald-50 border-emerald-200' : 'bg-purple-50 border-purple-200'
+          }`}>
+            <span className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+              idApproved ? 'bg-emerald-600 text-white' : 'bg-purple-700 text-white'
+            }`}>
+              {idApproved ? '✓' : '1'}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[10px] font-black text-slate-900 leading-tight">Valid ID</p>
+              <p className="text-[9px] font-bold text-slate-500 mt-0.5">
+                {idApproved
+                  ? 'Approved'
+                  : idRejected
+                    ? 'Rejected — resubmit'
+                    : record
+                      ? 'Awaiting decision'
+                      : 'Not submitted'}
+              </p>
+            </div>
+          </div>
+          <div className={`p-2 rounded-xl border flex items-start gap-2 ${
+            effectiveAccountVerified
+              ? 'bg-emerald-50 border-emerald-200'
+              : idApproved
+                ? 'bg-purple-50 border-purple-200'
+                : 'bg-slate-50 border-slate-200'
+          }`}>
+            <span className={`w-5 h-5 rounded-full text-[10px] font-black flex items-center justify-center shrink-0 ${
+              effectiveAccountVerified
+                ? 'bg-emerald-600 text-white'
+                : idApproved
+                  ? 'bg-purple-700 text-white'
+                  : 'bg-slate-300 text-white'
+            }`}>
+              {effectiveAccountVerified ? '✓' : idApproved ? '2' : <Lock className="w-2.5 h-2.5" />}
+            </span>
+            <div className="min-w-0">
+              <p className={`text-[10px] font-black leading-tight ${
+                effectiveAccountVerified || idApproved ? 'text-slate-900' : 'text-slate-500'
+              }`}>
+                Account
+              </p>
+              <p className="text-[9px] font-bold text-slate-500 mt-0.5">
+                {effectiveAccountVerified
+                  ? 'Urios Verified'
+                  : idApproved
+                    ? 'Ready to approve'
+                    : 'Locked until step 1'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {notice && (
+          <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-start gap-2">
+            <CheckCircle2 className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{notice}</span>
+          </div>
+        )}
+
+        {error && (
+          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold flex items-start gap-2">
+            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
 
         {!record ? (
           <div className="p-4 rounded-xl bg-slate-50 border border-dashed border-slate-200 text-center">
             <FileText className="w-5 h-5 text-slate-400 mx-auto mb-1" />
             <p className="text-xs font-bold text-slate-700">No valid ID submitted yet</p>
             <p className="text-[11px] text-slate-500 mt-0.5">
-              {landlord?.name || 'This landlord'} has not uploaded an ID for review.
+              {landlord?.name || 'This landlord'} has not uploaded an ID for review. Ask them to submit
+              one — the account cannot be approved without it.
             </p>
           </div>
         ) : (
@@ -321,37 +471,152 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
             )}
 
             {record.reviewNotes && (
-              <p className="text-[11px] text-slate-500 italic">Review notes: {record.reviewNotes}</p>
+              <p className="text-[11px] text-slate-600 italic leading-relaxed">
+                Review notes: {record.reviewNotes}
+              </p>
             )}
 
-            <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => handleReview('rejected')}
-                disabled={Boolean(reviewing)}
-                className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
-              >
-                {reviewing === 'rejected' ? 'Saving…' : 'Reject ID'}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleReview('approved')}
-                disabled={Boolean(reviewing)}
-                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-colors disabled:opacity-50 cursor-pointer flex items-center gap-1.5"
-              >
-                <CheckCircle2 className="w-3.5 h-3.5" />
-                {reviewing === 'approved' ? 'Saving…' : 'Approve ID'}
-              </button>
+            {/* Step 1 decision */}
+            <div className="pt-2 border-t border-slate-100 space-y-2">
+              {idApproved ? (
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <p className="text-[11px] font-bold text-emerald-900 flex-1 leading-snug">
+                    ID approved by {record.reviewedBy || 'an auditor'}
+                    {record.reviewedAt ? ` on ${formatDate(record.reviewedAt)}` : ''}.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => { setRejectOpen(v => !v); setError(''); }}
+                    disabled={Boolean(reviewing)}
+                    className="shrink-0 px-2.5 py-1 rounded-lg bg-white hover:bg-rose-50 border border-rose-200 text-rose-700 text-[10px] font-black transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    Reject ID
+                  </button>
+                </div>
+              ) : !rejectOpen ? (
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setRejectOpen(true); setError(''); }}
+                    disabled={Boolean(reviewing)}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-700 text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer"
+                  >
+                    Reject ID
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleReview('approved')}
+                    disabled={Boolean(reviewing) || !hasPhoto}
+                    title={hasPhoto ? 'Approve this ID (step 1)' : 'No photo on file — ask the landlord to resubmit'}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {reviewing === 'approved' ? 'Saving…' : 'Approve ID'}
+                  </button>
+                </div>
+              ) : null}
+
+              {!hasPhoto && !idApproved && (
+                <p className="text-[10px] font-bold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1.5 leading-relaxed">
+                  This submission has no ID photo, so it cannot be approved. Ask the landlord to
+                  resubmit with a photo of the front of their ID.
+                </p>
+              )}
+
+              {rejectOpen && (
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 space-y-2">
+                  <p className="text-[11px] font-black text-rose-900">Reject this ID</p>
+                  <textarea
+                    rows="2"
+                    value={rejectionReason}
+                    onChange={(e) => setRejectionReason(e.target.value)}
+                    placeholder="Reason shown to the landlord, e.g. the photo is blurred or the name does not match the account."
+                    className="w-full px-2.5 py-2 rounded-lg bg-white border border-rose-200 text-[11px] font-medium text-slate-800 focus:outline-none focus:border-rose-400 resize-none"
+                  />
+                  {effectiveAccountVerified && (
+                    <p className="text-[10px] font-bold text-rose-800 flex items-start gap-1 leading-relaxed">
+                      <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+                      This also revokes the account's Urios Verified badge, because it was granted on
+                      this ID.
+                    </p>
+                  )}
+                  <div className="flex items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setRejectOpen(false); setRejectionReason(''); setError(''); }}
+                      className="px-3 py-1.5 rounded-lg bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-[11px] font-bold transition-colors cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleReview('rejected')}
+                      disabled={Boolean(reviewing) || !rejectionReason.trim()}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-[11px] font-black transition-colors disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+                    >
+                      {reviewing === 'rejected' ? 'Saving…' : 'Confirm rejection'}
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
 
-        {error && (
-          <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold flex items-start gap-2">
-            <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-            <span>{error}</span>
-          </div>
-        )}
+        {/* Step 2 — only unlocked by an approved ID */}
+        <div className={`p-3 rounded-xl border ${
+          effectiveAccountVerified
+            ? 'bg-emerald-50 border-emerald-200'
+            : idApproved
+              ? 'bg-purple-50 border-purple-200'
+              : 'bg-slate-50 border-slate-200'
+        }`}>
+          <p className="text-[10px] font-black uppercase tracking-wide text-slate-500 flex items-center gap-1">
+            <ShieldCheck className="w-3 h-3" />
+            Step 2 · Landlord account
+          </p>
+
+          {effectiveAccountVerified ? (
+            <p className="text-[11px] font-bold text-emerald-900 mt-1 leading-relaxed">
+              Approved — every listing owned by this landlord carries the Urios Verified badge.
+            </p>
+          ) : idApproved ? (
+            <>
+              <p className="text-[11px] text-slate-700 mt-1 leading-relaxed">
+                The ID is approved. You can now approve the host account.
+              </p>
+              <button
+                type="button"
+                onClick={handleApproveAccount}
+                disabled={accountSaving || !onApproveAccount}
+                className="mt-2 w-full flex items-center justify-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black transition-colors disabled:bg-slate-400 disabled:cursor-not-allowed cursor-pointer"
+              >
+                {accountSaving
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <ShieldCheck className="w-3.5 h-3.5" />}
+                {accountSaving ? 'Approving account…' : 'Approve landlord account'}
+              </button>
+              {!onApproveAccount && (
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Use “Approve as Urios Verified” in the Auditor list.
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="text-[11px] text-slate-600 mt-1 leading-relaxed flex items-start gap-1">
+              <Lock className="w-3 h-3 shrink-0 mt-0.5" />
+              <span>Locked — approve the valid ID in step 1 first.</span>
+            </p>
+          )}
+
+          {accountError && (
+            <div className="mt-2 p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-[10px] font-bold flex items-start gap-1.5">
+              <AlertCircle className="w-3 h-3 shrink-0 mt-0.5" />
+              <span>{accountError}</span>
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -368,11 +633,21 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
             Valid ID for Verification
           </p>
           <p className="text-[11px] text-slate-500 mt-0.5">
-            Private — only FSUU admins and auditors can see your ID.
+            Private — only FSUU admins and auditors can see your ID. They approve the ID first, then
+            your host account.
           </p>
         </div>
         {record && <StatusChip status={record.status || 'pending'} />}
       </div>
+
+      {record?.status === 'rejected' && record.reviewNotes && (
+        <div className="p-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold flex items-start gap-2">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span>
+            <b>ID rejected:</b> {record.reviewNotes} Resubmit a corrected photo to restart the review.
+          </span>
+        </div>
+      )}
 
       {notice && (
         <div className="p-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-[11px] font-bold flex items-start gap-2">
@@ -467,7 +742,7 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {[
-              { side: 'front', label: 'Front of ID', file: frontFile, preview: frontPreview, inputRef: frontInputRef },
+              { side: 'front', label: 'Front of ID (required)', file: frontFile, preview: frontPreview, inputRef: frontInputRef },
               { side: 'back', label: 'Back of ID (optional)', file: backFile, preview: backPreview, inputRef: backInputRef }
             ].map(({ side, label, file, preview, inputRef }) => {
               const existingUrl = side === 'front' ? record?.frontImageUrl : record?.backImageUrl;
@@ -513,8 +788,9 @@ export default function LandlordIdCard({ landlord, isOwnProfile = false, isAdmin
           <div className="p-2.5 rounded-xl bg-amber-50 border border-amber-200 text-[10px] text-amber-900 flex items-start gap-2">
             <ShieldCheck className="w-3.5 h-3.5 shrink-0 mt-0.5 text-amber-700" />
             <p className="leading-relaxed">
-              Your ID is stored privately in Supabase. Only admin and auditor accounts can
-              open the full number and photos. Everyone else sees nothing.
+              Your ID is stored privately in Supabase. Only admin and auditor accounts can open the
+              full number and photos. A photo of the front of your ID is required — auditors compare
+              it with the details you type, approve the ID, and only then can your account be verified.
             </p>
           </div>
 

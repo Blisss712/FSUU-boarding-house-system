@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { getGateDistance } from '../utils/distance';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../services/api';
 import LandlordIdCard from './LandlordIdCard';
 import LandlordSocialCard from './LandlordSocialCard';
 import MessageLandlordButton from './MessageLandlordButton';
@@ -55,6 +56,49 @@ export default function LandlordProfilePage({
     (landlord.email && user.email && sameText(landlord.email, user.email))
   );
   const canSeeIdCard = isOwnProfile || isAdmin;
+
+  /**
+   * Step 2 of the verification process. The ID card only offers this button
+   * once the valid ID is approved, and `api.verifyLandlordAccount` refuses the
+   * write if the ID is not approved, so the order cannot be skipped here either.
+   */
+  const handleApproveAccount = async () => {
+    if (!isAdmin) {
+      throw new Error('Only an auditor can approve this landlord account.');
+    }
+    if (!landlord.userId) {
+      throw new Error('This host is not linked to a landlord account yet, so the account cannot be approved.');
+    }
+
+    const updated = await api.verifyLandlordAccount(landlord.userId, {
+      isUriosVerified: true,
+      verifiedBy: user?.name || user?.email || 'FSUU Housing Committee Admin'
+    });
+
+    onLandlordUpdated?.({
+      isUriosVerified: updated?.isUriosVerified,
+      verificationStatus: updated?.verificationStatus,
+      verifiedAt: updated?.verifiedAt,
+      verifiedBy: updated?.verifiedBy,
+      verificationNotes: updated?.verificationNotes
+    });
+
+    return updated;
+  };
+
+  /** Rejecting or resubmitting an ID revokes/pauses the badge — keep the page in sync. */
+  const handleIdReviewed = (idRecord) => {
+    if (!idRecord?.accountVerificationRevoked) return;
+    onLandlordUpdated?.({
+      isUriosVerified: false,
+      verificationStatus: 'pending',
+      verifiedAt: null,
+      verifiedBy: null,
+      verificationNotes: idRecord?.status === 'rejected'
+        ? 'Verification revoked: the submitted valid ID was rejected.'
+        : 'Verification paused: a new valid ID is awaiting review.'
+    });
+  };
 
   const totalAvailable = theirPads.reduce((s, p) => s + (p.availableCount || 0), 0);
 
@@ -234,6 +278,9 @@ export default function LandlordProfilePage({
               landlord={landlord}
               isOwnProfile={isOwnProfile && !isAdmin}
               isAdmin={isAdmin}
+              accountVerified={accountVerified}
+              onApproveAccount={handleApproveAccount}
+              onReviewed={handleIdReviewed}
             />
           )}
 

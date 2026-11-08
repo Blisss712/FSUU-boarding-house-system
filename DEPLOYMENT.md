@@ -26,6 +26,10 @@ schema files from `supabase/` in this order:
 4. `add-tenancy-approval.sql`
 5. `add-landlord-valid-id.sql`
 6. `add-messaging.sql`
+7. `add-verification-workflow.sql` — database guard that only lets a landlord be
+   marked Urios Verified after their valid ID is approved, plus a cleanup that
+   revokes existing badges with no approved ID behind them. Run it **after**
+   step 5.
 
 `fix-*.sql` files are patches for older installs; run one only if you hit the
 problem it fixes. `clean-demo-data.sql` is optional and destructive.

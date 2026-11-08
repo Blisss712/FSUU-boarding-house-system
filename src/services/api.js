@@ -434,14 +434,21 @@ export const api = {
   /**
    * All landlord accounts, for the Auditor tab. Returns public profile rows
    * (password hashes removed) including their verification state.
+   *
+   * The Urios Verified badge is derived from the ID review, never taken at face
+   * value from `users.isUriosVerified`: an account whose valid ID is not
+   * `approved` is returned as pending, so the Auditor tab can never show
+   * "URIOS VERIFIED" next to "No ID submitted".
    */
   async getLandlords() {
     // `select('*')` never fails when the optional verification columns have not
     // been migrated yet; rows simply lack those fields and normalize to pending.
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('role', 'landlord');
+    const [usersResult, idStatuses] = await Promise.all([
+      supabase.from('users').select('*').eq('role', 'landlord'),
+      this.getLandlordIdStatuses()
+    ]);
+
+    const { data, error } = usersResult;
 
     if (error) {
       console.error('[Supabase getLandlords error]:', error.message);
@@ -449,18 +456,101 @@ export const api = {
     }
 
     return (data || [])
-      .map(row => publicUser(row))
+      .map(row => this._applyValidIdGate(publicUser(row), idStatuses))
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   },
 
   /**
+   * Applies the "no approved ID → no Urios Verified badge" rule to a user row
+   * using a `{ userId: landlord_ids row }` map. Always attaches `validIdStatus`
+   * so the UI can show which verification step is missing.
+   */
+  _applyValidIdGate(user, idStatuses = {}) {
+    if (!user) return user;
+
+    const record = idStatuses?.[String(user.id)] || null;
+    const validIdStatus = record?.status || 'missing';
+
+    if (!user.isUriosVerified) return { ...user, validIdStatus };
+    if (validIdStatus === 'approved') return { ...user, validIdStatus };
+
+    return {
+      ...user,
+      validIdStatus,
+      isUriosVerified: false,
+      verificationStatus: 'pending',
+      verifiedAt: null,
+      verifiedBy: null,
+      verificationNotes: 'Verification cleared — the valid ID is not approved.'
+    };
+  },
+
+  /**
+   * Same rule for the signed-in landlord's own profile (RLS lets them read
+   * their own ID row). Only landlords are checked, and only when the stored
+   * flag claims verification.
+   */
+  async _applyOwnValidIdGate(user) {
+    if (!user || !user.isUriosVerified) return user;
+    if (user.role !== 'landlord') return user;
+
+    const { record } = await this._landlordIdReviewState(user.id);
+    if (record?.status === 'approved') return user;
+
+    return {
+      ...user,
+      validIdStatus: record?.status || 'missing',
+      isUriosVerified: false,
+      verificationStatus: 'pending',
+      verifiedAt: null,
+      verifiedBy: null,
+      verificationNotes: 'Verification pending — the valid ID is not approved.'
+    };
+  },
+  /**
    * Admin-only approval of a landlord account as "Urios Verified".
    * Updates public.users; RLS `users_update` already allows admins.
+   *
+   * VERIFICATION ORDER — step 2 of 2.
+   * Step 1 is the valid-ID review in `public.landlord_ids`. Approving the
+   * account is only allowed once that ID is `approved` and has a photo on file,
+   * so no UI (or direct API call) can hand out the badge without an ID check.
+   * supabase/add-verification-workflow.sql enforces the same rule in the DB.
+   * Revoking (isUriosVerified = false) is always allowed.
    */
   async verifyLandlordAccount(userId, auditData = {}) {
     if (!userId) throw new ApiError('Landlord account id is required.', 400);
 
     const isVerified = Boolean(auditData.isUriosVerified);
+
+    if (isVerified) {
+      const gate = await this._landlordIdReviewState(userId);
+      const idStatus = gate.record?.status || 'missing';
+
+      if (gate.missingTable) {
+        throw new ApiError(
+          'The valid-ID table could not be read, so the ID cannot be verified. Run supabase/add-landlord-valid-id.sql in Supabase first.',
+          409
+        );
+      }
+
+      if (idStatus !== 'approved') {
+        throw new ApiError(
+          idStatus === 'missing'
+            ? 'This landlord has no valid ID on file. Submit and approve their ID (step 1) before approving the account.'
+            : `This landlord's valid ID is still ${idStatus}. Approve the ID first (step 1), then approve the account.`,
+          409
+        );
+      }
+
+      if (!gate.record?.frontImagePath && !gate.record?.backImagePath) {
+        throw new ApiError(
+          'The approved ID record has no photo on file, so there is nothing to verify. Ask the landlord to resubmit a photo of their ID.',
+          409
+        );
+      }
+    }
+
     const basePayload = {
       verificationStatus:
         auditData.verificationStatus || (isVerified ? 'verified' : 'pending'),
@@ -549,6 +639,61 @@ export const api = {
   },
 
   /**
+   * Lightweight read of one landlord's ID review state, used by the step-2
+   * account-approval guard. Unlike `getLandlordId` this does not mint signed
+   * photo URLs and never throws: a missing table is reported so the caller can
+   * prompt for supabase/add-landlord-valid-id.sql.
+   */
+  async _landlordIdReviewState(userId) {
+    if (!userId) return { record: null, missingTable: false };
+
+    const { data, error } = await supabase
+      .from('landlord_ids')
+      .select('status, frontImagePath, backImagePath, reviewedAt, reviewedBy')
+      .eq('userId', String(userId))
+      .maybeSingle();
+
+    if (error) {
+      if (!isMissingColumnError(error)) {
+        console.warn('[Supabase _landlordIdReviewState error]:', error.message);
+      }
+      return { record: null, missingTable: true };
+    }
+
+    return { record: data || null, missingTable: false };
+  },
+
+  /**
+   * ID review state for every landlord, keyed by userId. Used by the Auditor
+   * tab so the ID gate (and the step that is still missing) is visible in the
+   * landlord list instead of only after opening the profile.
+   * Returns `{}` when the table has not been migrated yet.
+   */
+  async getLandlordIdStatuses() {
+    try {
+      const { data, error } = await supabase
+        .from('landlord_ids')
+        .select('userId, status, submittedAt, reviewedAt, reviewedBy, frontImagePath, backImagePath');
+
+      if (error) {
+        if (!isMissingColumnError(error)) {
+          console.warn('[Supabase getLandlordIdStatuses error]:', error.message);
+        }
+        return {};
+      }
+
+      const byUser = {};
+      for (const row of data || []) {
+        if (!row?.userId) continue;
+        byUser[String(row.userId)] = row;
+      }
+      return byUser;
+    } catch {
+      return {};
+    }
+  },
+
+  /**
    * The valid-ID record for a landlord. RLS only returns it to the landlord
    * who owns it or to an admin/auditor. Returns null when nothing is on file
    * (or when supabase/add-landlord-valid-id.sql has not been run yet).
@@ -612,7 +757,8 @@ export const api = {
 
   /**
    * Creates/updates the signed-in landlord's ID submission. The row is reset
-   * to `pending` so an auditor reviews any new photo or ID number.
+   * to `pending` so an auditor reviews any new photo or ID number, and an
+   * already-verified account is paused until that review finishes.
    */
   async submitLandlordId(data = {}) {
     const authId = await this._currentAuthUserId();
@@ -624,6 +770,15 @@ export const api = {
     const idNumber = String(data.idNumber || '').trim();
     if (!idNumber) {
       throw new ApiError('Please enter your ID number.', 400);
+    }
+
+    // A number alone cannot be verified — auditors must be able to compare the
+    // typed details against a photo of the physical ID.
+    if (!data.frontImagePath && !data.backImagePath) {
+      throw new ApiError(
+        'Attach a photo of the front of your valid ID before submitting. Auditors need to see the ID, not just the number.',
+        400
+      );
     }
 
     const payload = {
@@ -645,17 +800,57 @@ export const api = {
       .maybeSingle();
 
     if (error) {
+      const needsPolicies = error.code === '42501'
+        || /row-level security|permission denied/i.test(error.message || '');
       const hint = isMissingColumnError(error)
         ? ' Run supabase/add-landlord-valid-id.sql in Supabase first.'
-        : '';
+        : needsPolicies
+          ? ' The landlord_ids policies are missing — re-run supabase/add-landlord-valid-id.sql in Supabase.'
+          : '';
       console.error('[Supabase submitLandlordId error]:', error.message);
       throw new ApiError(`Failed to save your valid ID: ${error.message}.${hint}`, 500);
     }
 
-    return this._withLandlordIdImageUrls(row);
+    // A fresh submission resets the ID to `pending`, so any badge granted on the
+    // previous ID has to pause until an auditor approves the new evidence.
+    let accountVerificationRevoked = false;
+    try {
+      const { data: account } = await supabase
+        .from('users')
+        .select('id, isUriosVerified, verificationStatus')
+        .eq('id', String(userId))
+        .maybeSingle();
+
+      const wasVerified = account
+        && (account.isUriosVerified === true
+          || account.isUriosVerified === 1
+          || account.verificationStatus === 'verified');
+
+      if (wasVerified) {
+        await this.verifyLandlordAccount(userId, {
+          isUriosVerified: false,
+          verificationStatus: 'pending',
+          verificationNotes: 'Verification paused — a new valid ID was submitted and is awaiting review.'
+        });
+        accountVerificationRevoked = true;
+      }
+    } catch (revokeError) {
+      console.warn('[Supabase submitLandlordId] could not pause verification:', revokeError?.message);
+    }
+
+    const record = await this._withLandlordIdImageUrls(row);
+    return record ? { ...record, accountVerificationRevoked } : record;
   },
 
-  /** Admin/auditor review of a submitted ID. */
+  /**
+   * Admin/auditor review of a submitted ID — step 1 of 2.
+   *
+   * Approving the ID does NOT verify the account; that stays a separate,
+   * explicit step 2 (`verifyLandlordAccount`). Rejecting the ID is the one
+   * direction that does affect the account: an existing Urios Verified badge is
+   * revoked, because the evidence behind it no longer holds.
+   * The returned record carries `accountVerificationRevoked` for the UI.
+   */
   async reviewLandlordId(userId, review = {}) {
     if (!userId) throw new ApiError('Landlord account id is required.', 400);
 
@@ -663,13 +858,22 @@ export const api = {
       : review.status === 'rejected' ? 'rejected'
       : 'pending';
 
+    const reviewNotes = String(review.reviewNotes || '').trim();
+
+    if (status === 'rejected' && !reviewNotes) {
+      throw new ApiError(
+        'Add a short reason for rejecting the ID. It is shown to the landlord so they can fix the submission.',
+        400
+      );
+    }
+
     const { data, error } = await supabase
       .from('landlord_ids')
       .update({
         status,
         reviewedAt: new Date().toISOString(),
         reviewedBy: review.reviewedBy || 'FSUU Housing Committee Admin',
-        reviewNotes: review.reviewNotes || '',
+        reviewNotes,
         updatedAt: new Date().toISOString()
       })
       .eq('userId', String(userId))
@@ -681,7 +885,38 @@ export const api = {
       throw new ApiError(`Failed to update the ID review: ${error.message}`, 500);
     }
 
-    return this._withLandlordIdImageUrls(data);
+    let accountVerificationRevoked = false;
+
+    if (status === 'rejected' && data) {
+      // Best-effort: never fail the ID review because the badge cleanup (or a
+      // not-yet-migrated users table) failed.
+      try {
+        const { data: account } = await supabase
+          .from('users')
+          .select('id, isUriosVerified, verificationStatus')
+          .eq('id', String(userId))
+          .maybeSingle();
+
+        const wasVerified = account
+          && (account.isUriosVerified === true
+            || account.isUriosVerified === 1
+            || account.verificationStatus === 'verified');
+
+        if (wasVerified) {
+          await this.verifyLandlordAccount(userId, {
+            isUriosVerified: false,
+            verificationStatus: 'pending',
+            verificationNotes: `Verification revoked — valid ID rejected: ${reviewNotes}`
+          });
+          accountVerificationRevoked = true;
+        }
+      } catch (revokeError) {
+        console.warn('[Supabase reviewLandlordId] could not revoke verification:', revokeError?.message);
+      }
+    }
+
+    const record = await this._withLandlordIdImageUrls(data);
+    return record ? { ...record, accountVerificationRevoked } : record;
   },
 
   // ── Properties ────────────────────────────────────────────────────────────
@@ -2793,7 +3028,7 @@ export const api = {
     return {
       success: true,
       token: data.session?.access_token || '',
-      user: publicUser(formattedUser)
+      user: await this._applyOwnValidIdGate(publicUser(formattedUser))
     };
   },
 
@@ -2814,12 +3049,12 @@ export const api = {
 
     if (profile) {
       const profileIsAdmin = isAdmin || profile.role === 'admin';
-      return publicUser({
+      return this._applyOwnValidIdGate(publicUser({
         ...profile,
         role: profileIsAdmin ? 'admin' : profile.role,
         isAdmin: profileIsAdmin,
         name: profile.name
-      });
+      }));
     }
 
     return publicUser({

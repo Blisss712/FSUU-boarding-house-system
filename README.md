@@ -131,9 +131,27 @@ If listings look "mixed up" between accounts, or the admin audit throws
 
 ### Landlord Account Verification (Auditor Tab):
 
-Admins can now approve landlord accounts as **Urios Verified** from the bottom
-**Auditor** tab. Open **Landlord Accounts**, choose a host, and approve the
-account. The badge is account-level, so it applies to every pad the landlord owns.
+Verification is a **two-step process with a fixed order**:
+
+1. **Valid ID review** — the landlord submits their government ID (type, number,
+   and a photo of the front). An auditor approves or rejects it in the
+   **Valid ID — auditor only** card on the landlord's full profile. Rejections
+   need a reason, which the landlord sees so they can resubmit.
+2. **Account approval** — only after the ID is approved can an auditor mark the
+   account **Urios Verified**, either from the same card ("Approve landlord
+   account") or from the Auditor tab's landlord dialog. The badge is
+   account-level, so it applies to every pad the landlord owns.
+
+The gate is enforced in three places: the auditor UI (the account option stays
+locked until the ID is approved), `api.verifyLandlordAccount` (refuses the write
+otherwise), and the database trigger from
+`supabase/add-verification-workflow.sql`. Rejecting an already-approved ID — or
+resubmitting a new one — revokes/pauses the account badge until the current ID is
+approved again, because the evidence behind it no longer holds. Running that
+migration also clears existing `Urios Verified` flags that have no approved ID
+behind them, so a legacy row can no longer show the badge next to "No ID
+submitted". The Auditor tab and the landlord's own profile also treat an
+unapproved ID as pending, even before the cleanup runs.
 
 - New/updated databases: `supabase/full-setup.sql` includes the verification
   columns automatically.
@@ -141,6 +159,8 @@ account. The badge is account-level, so it applies to every pad the landlord own
   adds `isUriosVerified`, `verificationStatus`, `verifiedAt`, `verifiedBy`, and
   `verificationNotes`, and normalizes an older integer `isUriosVerified` flag to
   a real boolean.
+- Then run `supabase/add-verification-workflow.sql` once to enforce the
+  ID-before-account order in the database.
 
 ### Explore Feed: Urios Verified vs All Listings
 

@@ -336,6 +336,8 @@ ALTER TABLE property_reviews ENABLE ROW LEVEL SECURITY;
 -- owned by supabase/add-messaging.sql, and dropping them here used to leave
 -- RLS switched on with no policy at all — which silently broke every chat
 -- ("no conversations", "permission denied for table messages").
+-- landlord_ids is excluded for the same reason: its policies are owned by
+-- supabase/add-landlord-valid-id.sql.
 DO $$ 
 DECLARE
   pol record;
@@ -344,7 +346,7 @@ BEGIN
     SELECT policyname, tablename 
     FROM pg_policies 
     WHERE schemaname = 'public'
-      AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats')
+      AND tablename NOT IN ('conversations', 'conversation_members', 'messages', 'chats', 'landlord_ids')
   LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON %I', pol.policyname, pol.tablename);
   END LOOP;

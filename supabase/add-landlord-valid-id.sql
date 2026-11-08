@@ -10,6 +10,8 @@
 --
 -- Run it AFTER supabase/rls-policies.sql (that file drops every
 -- public.* policy when re-run, so re-run this file after it).
+-- Then run supabase/add-verification-workflow.sql once: it enforces the
+-- "ID approved first, account second" order in the database.
 -- It is idempotent: safe to run more than once.
 -- ============================================================
 
