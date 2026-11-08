@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { School, ShieldCheck, ArrowRight, List } from 'lucide-react';
+import { School, ShieldCheck, ArrowRight, List, Bus, Footprints } from 'lucide-react';
 import PropertyMap from './PropertyMap';
+import { getGateDistance } from '../utils/distance';
 
 export default function FullScreenMapView({
   properties,
@@ -11,15 +12,17 @@ export default function FullScreenMapView({
 }) {
   const [selectedPinId, setSelectedPinId] = useState(properties[0]?.id || '');
   const activeProperty = properties.find(p => p.id === selectedPinId) || properties[0];
+  // Whichever time the landlord advertises (walk or commute), never a stale label.
+  const gateDistance = getGateDistance(activeProperty);
 
   return (
-    <div className="relative w-full h-[760px] bg-[#eef2f6] overflow-hidden flex flex-col select-none">
+    <div className="relative w-full h-[calc(100dvh-12.5rem)] min-h-[320px] bg-[#eef2f6] overflow-hidden flex flex-col select-none">
       {/* Top Floating Controls on Map */}
       <div className="absolute top-3 left-3 right-3 z-30 flex items-center justify-between gap-2">
         {/* Campus Header */}
-        <div className="flex items-center gap-1.5 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-800">
+        <div className="flex items-center gap-1.5 min-w-0 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-md border border-slate-200/80 text-xs font-bold text-slate-800">
           <School className="w-4 h-4 text-blue-600" />
-          <span>FSUU Main Campus (SF & JC Gates)</span>
+          <span className="truncate">FSUU Main Campus (SF & JC Gates)</span>
         </div>
 
         {/* Flood Layer Quick Switch */}
@@ -85,8 +88,9 @@ export default function FullScreenMapView({
             </h4>
 
             <div className="flex items-center gap-1.5 mt-1 text-[10px] font-bold text-slate-600">
-              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-900">
-                {activeProperty.badges?.walk || 'Walk time N/A'}
+              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-900 inline-flex items-center gap-1">
+                {gateDistance?.isRide ? <Bus className="w-2.5 h-2.5" /> : <Footprints className="w-2.5 h-2.5" />}
+                {gateDistance ? gateDistance.minutesLabel : 'Distance N/A'}
               </span>
               <span className="px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-900">
                 🛡️ Flood-Safe

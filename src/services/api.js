@@ -7,6 +7,7 @@
  */
 
 import { supabase } from '../lib/supabase';
+import { getGateDistance } from '../utils/distance';
 
 // ─── Typed Error ─────────────────────────────────────────────────────────────
 
@@ -812,32 +813,37 @@ export const api = {
       list = list.filter(p => p.zone === zone);
     }
 
-    // Checklist filters
+    // Checklist filters. Normalize through getGateDistance so a pad that stored
+    // only walking minutes (or only metres) is filtered on its derived value
+    // instead of being treated as a 0-minute / 0-metre pad.
+    const walkMinutesOf = (p) => getGateDistance(p)?.walkMinutes || 99;
+    const metersOf = (p) => getGateDistance(p)?.meters || 9999;
+
     if (minWalkMinutes) {
       const minMins = Number(minWalkMinutes);
       if (!isNaN(minMins) && minMins > 0) {
-        list = list.filter(p => (p.gateProximities?.mainSFGate?.walkingMinutes ?? 99) >= minMins);
+        list = list.filter(p => walkMinutesOf(p) >= minMins);
       }
     }
 
     if (maxWalkMinutes) {
       const maxMins = Number(maxWalkMinutes);
       if (!isNaN(maxMins) && maxMins > 0) {
-        list = list.filter(p => (p.gateProximities?.mainSFGate?.walkingMinutes ?? 99) <= maxMins);
+        list = list.filter(p => walkMinutesOf(p) <= maxMins);
       }
     }
 
     if (minDistanceMeters) {
       const minD = Number(minDistanceMeters);
       if (!isNaN(minD) && minD > 0) {
-        list = list.filter(p => (p.gateProximities?.mainSFGate?.distanceMeters ?? 9999) >= minD);
+        list = list.filter(p => metersOf(p) >= minD);
       }
     }
 
     if (maxDistanceMeters) {
       const maxD = Number(maxDistanceMeters);
       if (!isNaN(maxD) && maxD > 0) {
-        list = list.filter(p => (p.gateProximities?.mainSFGate?.distanceMeters ?? 9999) <= maxD);
+        list = list.filter(p => metersOf(p) <= maxD);
       }
     }
 
@@ -903,8 +909,8 @@ export const api = {
       list.sort((a, b) => (b.rating || 0) - (a.rating || 0));
     } else {
       list.sort((a, b) => {
-        const distA = a.gateProximities?.mainSFGate?.distanceMeters ?? 9999;
-        const distB = b.gateProximities?.mainSFGate?.distanceMeters ?? 9999;
+        const distA = getGateDistance(a)?.meters || 9999;
+        const distB = getGateDistance(b)?.meters || 9999;
         return distA - distB;
       });
     }

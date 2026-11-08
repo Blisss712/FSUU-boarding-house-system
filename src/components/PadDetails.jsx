@@ -197,9 +197,9 @@ export default function PadDetails({
   return (
     <div className="bg-slate-50/50 min-h-screen pb-32">
       {/* Top Header Bar */}
-      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md px-4 lg:px-8 py-3 border-b border-slate-200/80 shadow-2xs">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-3">
+      <div className="sticky top-0 z-40 bg-white/95 backdrop-blur-md px-3 sm:px-4 lg:px-8 py-2.5 sm:py-3 border-b border-slate-200/80 shadow-2xs">
+        <div className="max-w-6xl mx-auto flex items-center justify-between gap-2 min-w-0">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
             <button
               onClick={onBack}
               className="p-1.5 -ml-1.5 rounded-full text-slate-800 hover:bg-slate-100 transition-colors flex items-center gap-1.5 font-bold text-xs"
@@ -210,20 +210,20 @@ export default function PadDetails({
 
             <div className="h-4 w-px bg-slate-200 hidden sm:block" />
 
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-xl bg-[#0b1a30] flex items-center justify-center text-amber-400">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-xl bg-[#0b1a30] shrink-0 flex items-center justify-center text-amber-400">
                 <Building2 className="w-4 h-4" />
               </div>
               <span className="font-extrabold text-[15px] text-[#0b1a30] truncate">{name}</span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             {onOpenCostCalc && (
               <button
                 type="button"
                 onClick={() => onOpenCostCalc(property)}
-                className="px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 border border-emerald-200 transition-colors cursor-pointer"
+                className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-emerald-50 text-emerald-800 hover:bg-emerald-100 text-xs font-bold flex items-center gap-1.5 border border-emerald-200 transition-colors cursor-pointer"
                 title="True Cost & Appliance Calculator"
               >
                 <Calculator className="w-3.5 h-3.5 text-emerald-600" />
@@ -233,7 +233,7 @@ export default function PadDetails({
 
             <button
               onClick={() => onOpenParentShare(property)}
-              className="px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center gap-1.5 border border-blue-200 transition-colors cursor-pointer"
+              className="px-2.5 sm:px-3 py-1.5 rounded-xl bg-blue-50 text-blue-700 hover:bg-blue-100 text-xs font-bold flex items-center gap-1.5 border border-blue-200 transition-colors cursor-pointer"
               title="Share with Parents"
             >
               <Share2 className="w-3.5 h-3.5" />
@@ -1113,7 +1113,7 @@ export default function PadDetails({
                 </h3>
                 <span className="px-3 py-1 rounded-full bg-blue-50 text-blue-800 text-xs font-extrabold border border-blue-200">
                   {gateDistance
-                    ? `📍 ${gateDistance.distanceLabel || 'Distance not set'} · ${gateDistance.walkMinutes} min walk · ${gateDistance.commuteMinutes} min ride`
+                    ? `📍 ${gateDistance.distanceLabel || 'Distance not set'} · ${gateDistance.minutesLabel} · ${gateDistance.isRide ? `${gateDistance.walkMinutes} min walk` : `${gateDistance.commuteMinutes} min ride`}`
                     : '📍 Distance to campus not set'}
                 </span>
               </div>

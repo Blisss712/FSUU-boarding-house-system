@@ -69,7 +69,7 @@ export default function AuthModal({ onClose, defaultMode = 'login' }) {
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-md"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="relative w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[92dvh] flex flex-col">
         <div className={`px-6 pt-6 pb-5 ${isLandlord ? 'bg-gradient-to-br from-amber-500 to-orange-600' : 'bg-gradient-to-br from-[#0b1a30] to-[#1a3a6b]'}`}>
           <button
             onClick={onClose}

@@ -43,7 +43,7 @@ export default function StudentProfileModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-lg w-full max-h-[90dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
         
         {/* Header Hero Banner */}
         <div className="p-6 bg-gradient-to-br from-[#0b1a30] via-[#12284c] to-[#1c3f76] text-white relative shrink-0">

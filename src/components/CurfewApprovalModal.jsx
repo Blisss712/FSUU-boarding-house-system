@@ -109,7 +109,7 @@ export default function CurfewApprovalModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs animate-in fade-in duration-200">
-      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="bg-white rounded-3xl max-w-2xl w-full max-h-[90dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden">
         
         {/* Header */}
         <div className="p-5 bg-gradient-to-r from-[#0b1a30] via-[#132c54] to-[#1c3f76] text-white flex items-center justify-between shrink-0">

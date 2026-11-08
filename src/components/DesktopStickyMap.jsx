@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { School, ShieldCheck, ArrowRight, Check } from 'lucide-react';
+import { School, ShieldCheck, ArrowRight, Check, Bus, Footprints } from 'lucide-react';
 import PropertyMap from './PropertyMap';
+import { getGateDistance } from '../utils/distance';
 
 export default function DesktopStickyMap({
   properties,
@@ -12,6 +13,8 @@ export default function DesktopStickyMap({
 }) {
   const [activePinId, setActivePinId] = useState(null);
   const activeProperty = properties.find(p => p.id === (activePinId || hoveredPropertyId || selectedPropertyId)) || properties[0];
+  // Whichever time the landlord advertises (walk or commute), never a stale label.
+  const gateDistance = getGateDistance(activeProperty);
 
   return (
     <div className="w-full h-[calc(100vh-180px)] sticky top-[95px] rounded-3xl overflow-hidden shadow-sm border border-slate-200 bg-[#eef2f6] flex flex-col select-none">
@@ -91,8 +94,9 @@ export default function DesktopStickyMap({
             </div>
 
             <div className="flex items-center gap-1.5 mt-1 text-[11px] font-bold text-slate-600 flex-wrap">
-              <span className="px-2 py-0.5 rounded-md bg-[#eff6ff] text-[#1e293b]">
-                {activeProperty.badges?.walk || 'Walk time N/A'}
+              <span className="px-2 py-0.5 rounded-md bg-[#eff6ff] text-[#1e293b] inline-flex items-center gap-1">
+                {gateDistance?.isRide ? <Bus className="w-3 h-3" /> : <Footprints className="w-3 h-3" />}
+                {gateDistance ? gateDistance.minutesLabel : 'Distance N/A'}
               </span>
               <span className={`px-2 py-0.5 rounded-md ${activeProperty.floodRating?.isFloodFree !== false && !activeProperty.floodRating?.badge?.toLowerCase().includes('none') ? 'bg-[#f0fdf4] text-[#166534]' : 'bg-amber-50 text-amber-800'}`}>
                 {activeProperty.floodRating?.isFloodFree !== false && !activeProperty.floodRating?.badge?.toLowerCase().includes('none') ? '🛡️ Flood-Safe' : '⚠️ Flood Watch'}

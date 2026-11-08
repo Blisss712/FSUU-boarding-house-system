@@ -22,6 +22,7 @@ import { useAuth } from './context/AuthContext';
 import VerificationScopeToggle from './components/VerificationScopeToggle';
 import { isListingVerified, countListingsByVerification } from './utils/verification';
 import { isGoodConditionClaimed } from './utils/checklist';
+import { getGateDistance } from './utils/distance';
 import { padHasCurfew } from './utils/curfew';
 import { LayoutGrid, Rows3, Loader2, LayoutList, Sparkles, ListChecks, AlertTriangle, X } from 'lucide-react';
 
@@ -302,9 +303,12 @@ export default function App() {
       // (and every pad with no claim at all).
       if (rainOrShineOnly && !isGoodConditionClaimed(p)) return false;
 
-      // Distance & Commute Preferences (Walking minutes & distance meters)
-      const distMeters = p.gateProximities?.mainSFGate?.distanceMeters ?? (p.gateProximities?.mainSFGate?.walkingMinutes ? p.gateProximities.mainSFGate.walkingMinutes * 75 : 9999);
-      const walkMinutes = p.gateProximities?.mainSFGate?.walkingMinutes ?? 99;
+      // Distance & Commute Preferences (walking minutes & distance meters).
+      // Use the shared normalizer so pads that only stored one of the two
+      // numbers are compared on their derived value instead of 0.
+      const gateDistance = getGateDistance(p);
+      const distMeters = gateDistance?.meters || 9999;
+      const walkMinutes = gateDistance?.walkMinutes || 99;
 
       if (walkOnly && walkMinutes > 5) return false;
       if (maxWalkMinutes > 0 && walkMinutes > maxWalkMinutes) return false;
@@ -366,8 +370,8 @@ export default function App() {
     }).sort((a, b) => {
       if (sortBy === 'price-asc') return a.price - b.price;
       if (sortBy === 'rating') return (b.rating || 0) - (a.rating || 0);
-      const distA = a.gateProximities?.mainSFGate?.distanceMeters || 9999;
-      const distB = b.gateProximities?.mainSFGate?.distanceMeters || 9999;
+      const distA = getGateDistance(a)?.meters || 9999;
+      const distB = getGateDistance(b)?.meters || 9999;
       return distA - distB;
     });
   }, [
@@ -732,7 +736,7 @@ export default function App() {
           />
         </div>
       ) : user?.role === 'landlord' && (activeTab === 'listings' || activeTab === 'saved') ? (
-        <div className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+        <div className="flex-1 w-full py-2 sm:py-4">
           <MyListingsView
             properties={myListings}
             onSelectProperty={(p) => setSelectedProperty(p)}
@@ -745,7 +749,7 @@ export default function App() {
           />
         </div>
       ) : activeTab === 'saved' ? (
-        <div className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+        <div className="flex-1 w-full py-2 sm:py-4">
           <SavedView
             savedProperties={savedProperties}
             allProperties={properties}
@@ -759,7 +763,7 @@ export default function App() {
           />
         </div>
       ) : activeTab === 'myroom' ? (
-        <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+        <div className="flex-1 w-full py-2 sm:py-4">
           {user?.role === 'landlord' ? (
             <MyListingsView
               properties={myListings}
@@ -783,7 +787,7 @@ export default function App() {
           )}
         </div>
       ) : activeTab === 'profile' ? (
-        <div className="flex-1 max-w-4xl mx-auto w-full px-4 py-6">
+        <div className="flex-1 w-full py-2 sm:py-4">
           <ProfileView
             onOpenAuth={(mode) => setAuthModal(mode)}
             onOpenLandlordProfile={(landlord) => {
@@ -948,8 +952,8 @@ export default function App() {
                 )}
 
                 {/* Feed Header with Scalable Density Controls */}
-                <div className="flex items-center justify-between pb-2 border-b border-slate-200/80">
-                  <div>
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-200/80">
+                  <div className="min-w-0">
                     <h2 className="font-extrabold text-base sm:text-lg text-[#0b1a30] tracking-tight leading-snug">
                       {feedHeading}
                     </h2>

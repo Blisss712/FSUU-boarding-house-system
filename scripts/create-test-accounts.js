@@ -16,7 +16,7 @@
  *
  * Requires SUPABASE_SERVICE_ROLE_KEY in .env.
  *
- * NOTE: every test account shares one password (TestPass123!) on purpose.
+ * NOTE: every test account shares one password (123123) on purpose.
  * This is a LOCAL DEV / DEMO helper only — never run it against a
  * production project.
  */
@@ -38,7 +38,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false, autoRefreshToken: false },
 });
 
-const SHARED_PASSWORD = 'TestPass123!';
+const SHARED_PASSWORD = '123123';
 const BOARDER_COUNT = 20;
 const LANDLORD_COUNT = 10;
 const CAMPUS_ID = 'fsuu-main';

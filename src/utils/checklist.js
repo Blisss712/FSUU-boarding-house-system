@@ -21,7 +21,7 @@
  * this module so badges, filters and counts can never contradict each other.
  */
 
-import { formatDistance } from './distance';
+import { formatDistance, getGateDistance } from './distance';
 
 // Display metadata, in checklist order. `key` is the `verifiedItems` key.
 export const CHECKLIST_ITEMS = [
@@ -450,9 +450,9 @@ export function getChecklistClaims(property) {
 
   const verified = getVerifiedItems(property);
 
-  const mainGate = property.gateProximities?.mainSFGate;
-  const walkMinutes = Number(mainGate?.walkingMinutes) || 0;
-  const distanceMeters = Number(mainGate?.distanceMeters) || 0;
+  const mainGate = getGateDistance(property);
+  const walkMinutes = mainGate?.walkMinutes || 0;
+  const distanceMeters = mainGate?.meters || 0;
 
   return {
     goodCondition: buildGoodCondition(property, verified.goodCondition),

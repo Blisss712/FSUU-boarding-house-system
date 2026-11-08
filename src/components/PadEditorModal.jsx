@@ -21,7 +21,12 @@ import { api } from '../services/api';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import { LocationPickerMap } from './PropertyMap';
 import { padHasCurfew } from '../utils/curfew';
-import { estimateCommuteMinutes, formatDistance } from '../utils/distance';
+import {
+  estimateCommuteMinutes,
+  estimateWalkMinutes,
+  formatDistance,
+  WALK_METERS_PER_MINUTE
+} from '../utils/distance';
 import { normalizeClaim } from '../utils/checklist';
 import { CAMPUS } from '../lib/mapConfig';
 
@@ -223,6 +228,9 @@ export default function PadEditorModal({
   const [advanceDeposit, setAdvanceDeposit] = useState('');
   const [minContract, setMinContract] = useState('');
   const [walkingMinutes, setWalkingMinutes] = useState('');
+  // Ride time the feed advertises when "Commute minutes" is chosen. Kept in its
+  // own state so a host can override the derived tricycle/jeepney estimate.
+  const [commuteMinutes, setCommuteMinutes] = useState('');
   const [distanceMeters, setDistanceMeters] = useState('');
   // What the student feed advertises: walking minutes or commute minutes.
   const [feedMode, setFeedMode] = useState('walk');
@@ -261,10 +269,20 @@ export default function PadEditorModal({
       setMinContract(property.minContract || '');
       
       const walk = property.gateProximities?.mainSFGate?.walkingMinutes;
-      if (walk !== undefined) setWalkingMinutes(walk);
+      if (walk !== undefined && walk !== null) setWalkingMinutes(Number(walk) > 0 ? walk : '');
       const meters = property.gateProximities?.mainSFGate?.distanceMeters;
-      if (meters !== undefined) setDistanceMeters(meters);
+      if (meters !== undefined && meters !== null) setDistanceMeters(Number(meters) > 0 ? meters : '');
       setFeedMode(property.gateProximities?.mainSFGate?.feedMode === 'commute' ? 'commute' : 'walk');
+
+      // The ride time is stored too. Pads saved before it existed fall back to
+      // the distance-based estimate instead of opening the edit form empty.
+      const ride = property.gateProximities?.mainSFGate?.commuteMinutes;
+      const rideMeters = Number(meters) > 0
+        ? Number(meters)
+        : (Number(walk) > 0 ? Number(walk) * WALK_METERS_PER_MINUTE : 0);
+      setCommuteMinutes(Number(ride) > 0
+        ? ride
+        : (rideMeters ? String(estimateCommuteMinutes(rideMeters)) : ''));
 
       if (property.latitude != null && property.longitude != null) {
         setLatitude(Number(property.latitude));
@@ -382,6 +400,10 @@ export default function PadEditorModal({
       setGender('Co-ed Boarding House');
       setPrice('');
       setAvailableCount(1);
+      setWalkingMinutes('');
+      setCommuteMinutes('');
+      setDistanceMeters('');
+      setFeedMode('walk');
       setImageUrl('');
       setLatitude('');
       setLongitude('');
@@ -474,6 +496,43 @@ export default function PadEditorModal({
     ));
   };
 
+  // Walking minutes and distance are two ways of describing the same trip. The
+  // form used to leave one at 0 when the host filled in the other, which made
+  // the feed advertise "0 min walk" and the saved commute estimate 0. Typing
+  // either value now keeps the other in sync.
+  const handleWalkingMinutesChange = (e) => {
+    const raw = e.target.value;
+    setWalkingMinutes(raw);
+    const mins = Number(raw);
+    if (Number.isFinite(mins) && mins > 0) {
+      setDistanceMeters(String(Math.round(mins * WALK_METERS_PER_MINUTE)));
+    }
+  };
+
+  const handleDistanceMetersChange = (e) => {
+    const raw = e.target.value;
+    setDistanceMeters(raw);
+    const meters = Number(raw);
+    if (Number.isFinite(meters) && meters > 0) {
+      setWalkingMinutes(String(estimateWalkMinutes(meters)));
+      setCommuteMinutes(String(estimateCommuteMinutes(meters)));
+    }
+  };
+
+  const handleCommuteMinutesChange = (e) => {
+    setCommuteMinutes(e.target.value);
+  };
+
+  // Switching the advertised mode must also switch the number the host edits,
+  // so the form never keeps showing a walking time after "Commute" is picked.
+  const handleFeedModeChange = (nextMode) => {
+    setFeedMode(nextMode);
+    if (nextMode === 'commute' && !Number(commuteMinutes)) {
+      const meters = Number(distanceMeters) || (Number(walkingMinutes) ? Number(walkingMinutes) * WALK_METERS_PER_MINUTE : 0);
+      if (meters > 0) setCommuteMinutes(String(estimateCommuteMinutes(meters)));
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -517,10 +576,16 @@ export default function PadEditorModal({
     const waterChoice = WATER_OPTIONS.find(option => option.value === waterBadge) || null;
     const powerChoice = POWER_OPTIONS.find(option => option.value === powerBadge) || null;
 
-    const walkMins = Number(walkingMinutes) || 0;
-    const gateMeters = Number(distanceMeters) || 0;
-    const commuteMins = estimateCommuteMinutes(gateMeters);
-    const feedDistanceText = feedMode === 'commute'
+    const typedWalkMins = Number(walkingMinutes) || 0;
+    const typedRideMins = Number(commuteMinutes) || 0;
+    const typedMeters = Number(distanceMeters) || 0;
+    // Either field alone is enough: derive the missing one so a pad can never be
+    // saved with a 0-minute walk (or a 0-minute ride) just because the host only
+    // filled in the other box.
+    const gateMeters = typedMeters || (typedWalkMins ? typedWalkMins * WALK_METERS_PER_MINUTE : 0);
+    const walkMins = typedWalkMins || estimateWalkMinutes(gateMeters);
+    const commuteMins = typedRideMins || estimateCommuteMinutes(gateMeters);
+    const feedDistanceText = feedMode === 'commute' && commuteMins > 0
       ? `${commuteMins} min ride`
       : `${walkMins} min walk`;
 
@@ -663,12 +728,20 @@ export default function PadEditorModal({
     }
   };
 
+  // Live preview of the two numbers the student feed/profile will show.
+  const previewWalkMinutes = Number(walkingMinutes) || 0;
+  const previewMeters = Number(distanceMeters) || (previewWalkMinutes ? previewWalkMinutes * WALK_METERS_PER_MINUTE : 0);
+  const previewWalk = previewWalkMinutes || estimateWalkMinutes(previewMeters);
+  const previewCommute = Number(commuteMinutes) || estimateCommuteMinutes(previewMeters);
+  const previewWalkLabel = previewWalk > 0 ? `${previewWalk} min walk` : 'walk time not set';
+  const previewCommuteLabel = previewCommute > 0 ? `${previewCommute} min ride` : 'ride time not set';
+
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-950/70 backdrop-blur-sm overflow-y-auto"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-100 overflow-hidden my-auto max-h-[92dvh] flex flex-col">
         
         {/* Header */}
         <div className="px-6 py-4 bg-gradient-to-r from-[#0b1a30] via-[#12284c] to-[#1a3a6b] text-white flex items-center justify-between shrink-0">
@@ -870,17 +943,34 @@ export default function PadEditorModal({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                  Walking Minutes to Main Gate
+                  {feedMode === 'commute' ? 'Commute Minutes to Main Gate' : 'Walking Minutes to Main Gate'}
                 </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={walkingMinutes}
-                  onChange={(e) => setWalkingMinutes(Number(e.target.value))}
-                  className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
-                  required
-                />
+                {feedMode === 'commute' ? (
+                  <input
+                    type="number"
+                    min="1"
+                    max="120"
+                    value={commuteMinutes}
+                    onChange={handleCommuteMinutesChange}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
+                    required
+                  />
+                ) : (
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={walkingMinutes}
+                    onChange={handleWalkingMinutesChange}
+                    className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
+                    required
+                  />
+                )}
+                <p className="text-[10px] text-slate-400 font-semibold mt-1 leading-snug">
+                  {feedMode === 'commute'
+                    ? `Pad profile walk time: ${previewWalk > 0 ? `${previewWalk} min walk` : 'not set'} · 75 m per minute`
+                    : `Pad profile ride time: ${previewCommute > 0 ? `${previewCommute} min ride` : 'not set'} · estimated trike/jeepney trip + wait`}
+                </p>
               </div>
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
@@ -890,9 +980,9 @@ export default function PadEditorModal({
                   type="number"
                   min="20"
                   max="10000"
-                  step="10"
+                  step="1"
                   value={distanceMeters}
-                  onChange={(e) => setDistanceMeters(Number(e.target.value))}
+                  onChange={handleDistanceMetersChange}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                   required
                 />
@@ -907,7 +997,7 @@ export default function PadEditorModal({
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setFeedMode('walk')}
+                  onClick={() => handleFeedModeChange('walk')}
                   className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                     feedMode === 'walk'
                       ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
@@ -919,7 +1009,7 @@ export default function PadEditorModal({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setFeedMode('commute')}
+                  onClick={() => handleFeedModeChange('commute')}
                   className={`px-3 py-2 rounded-xl text-xs font-bold border transition-colors cursor-pointer flex items-center justify-center gap-1.5 ${
                     feedMode === 'commute'
                       ? 'bg-[#0b1a30] text-white border-[#0b1a30]'
@@ -932,9 +1022,13 @@ export default function PadEditorModal({
               </div>
               <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
                 {feedMode === 'commute'
-                  ? `Feed shows “${estimateCommuteMinutes(Number(distanceMeters)) || 0} min ride” — estimated tricycle/jeepney trip plus waiting time.`
-                  : `Feed shows “${Number(walkingMinutes) || 0} min walk”.`}
-                {' '}The pad profile always lists both walk and commute time, and distances switch to kilometres (e.g. {formatDistance(Number(distanceMeters)) || '1.00 km'}) from 1 km up.
+                  ? (previewCommute > 0
+                      ? `Feed shows “${previewCommute} min ride” — estimated tricycle/jeepney trip plus waiting time.`
+                      : 'Add walking minutes or a distance to estimate the ride time shown in the feed.')
+                  : (previewWalk > 0
+                      ? `Feed shows “${previewWalk} min walk”.`
+                      : 'Add walking minutes or a distance to show walk time in the feed.')}
+                {' '}The pad profile always lists both ({previewWalkLabel} · {previewCommuteLabel}), and distances switch to kilometres (e.g. {formatDistance(previewMeters) || '1.00 km'}) from 1 km up.
               </p>
             </div>
 

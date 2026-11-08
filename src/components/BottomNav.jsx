@@ -47,7 +47,7 @@ export default function BottomNav({
     <>
       {/* Floating Map View Pill (mobile/tablet only — desktop already shows the sticky map) */}
       {activeTab === 'explore' && (
-        <div className="lg:hidden fixed bottom-[72px] left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+        <div className="lg:hidden fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
           <button
             onClick={onOpenMap}
             className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0b1a30] hover:bg-[#152a4d] text-white text-[12.5px] font-black shadow-xl border border-white/10 transition-all hover:scale-[1.03] active:scale-[0.97]"

@@ -166,7 +166,7 @@ export default function HierarchicalFilterModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto">
-      <div className="bg-white rounded-t-[32px] sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 max-h-[92vh] overflow-y-auto space-y-4 animate-in slide-in-from-bottom duration-200">
+      <div className="bg-white rounded-t-[32px] sm:rounded-3xl max-w-lg w-full p-5 sm:p-6 shadow-2xl border border-slate-100 max-h-[92dvh] overflow-y-auto space-y-4 animate-in slide-in-from-bottom duration-200 pb-safe">
         
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-100">

@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { listStudentNeeds, getAiStatus, AiSearchError } from '../services/aiSearch';
 import { rankMatches, buildNeedPatch, assessNeeds } from '../services/ai/aiNeeds';
+import { getGateDistance } from '../utils/distance';
 
 const LOADING_MESSAGES = [
   'Reading your message…',
@@ -418,7 +419,7 @@ export default function AiNeedsSearchModal({
         if (event.target === event.currentTarget) onClose?.();
       }}
     >
-      <div className="w-full sm:max-w-2xl max-h-[94vh] sm:max-h-[90vh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+      <div className="w-full sm:max-w-2xl max-h-[94dvh] sm:max-h-[90dvh] bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden pb-safe">
 
         {/* Header */}
         <div className="flex items-start justify-between gap-3 px-4 sm:px-5 py-3.5 bg-gradient-to-r from-[#0b1a30] via-[#172c4d] to-[#3b2a63] text-white shrink-0">
@@ -804,9 +805,10 @@ export default function AiNeedsSearchModal({
                                 {property.zone || property.area || 'Butuan'}
                               </span>
                               {property.roomType && <span>{property.roomType}</span>}
-                              {property.gateProximities?.mainSFGate?.walkingMinutes ? (
-                                <span>{property.gateProximities.mainSFGate.walkingMinutes} min walk</span>
-                              ) : null}
+                              {(() => {
+                                const gate = getGateDistance(property);
+                                return gate ? <span>{gate.minutesLabel}</span> : null;
+                              })()}
                             </div>
 
                             {match.reason && (

@@ -70,7 +70,7 @@ export default function CompactPropertyCard({
             {/* Walk / commute time (whichever the landlord advertises) */}
             {gateDistance && (
               <div className={`absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md text-[9px] font-bold flex items-center gap-1 ${
-                gateDistance.walkMinutes <= 5 ? 'bg-emerald-500 text-white' : gateDistance.walkMinutes <= 10 ? 'bg-amber-500 text-white' : 'bg-black/70 text-white'
+                gateDistance.minutes <= 5 ? 'bg-emerald-500 text-white' : gateDistance.minutes <= 10 ? 'bg-amber-500 text-white' : 'bg-black/70 text-white'
               }`}>
                 {gateDistance.isRide
                   ? <Bus className="w-2.5 h-2.5" />

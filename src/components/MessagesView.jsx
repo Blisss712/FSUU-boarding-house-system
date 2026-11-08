@@ -165,7 +165,7 @@ function NewChatModal({ canCreateGroup, contacts, loading, busy, onClose, onCrea
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-md w-full max-h-[86vh] flex flex-col shadow-2xl border border-slate-100">
+      <div className="bg-white rounded-3xl max-w-md w-full max-h-[86dvh] flex flex-col shadow-2xl border border-slate-100">
 
         <div className="flex items-start justify-between gap-3 p-5 pb-3 border-b border-slate-100">
           <div>
@@ -317,7 +317,7 @@ function GroupMembersModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-3xl max-w-md w-full max-h-[86vh] flex flex-col shadow-2xl border border-slate-100">
+      <div className="bg-white rounded-3xl max-w-md w-full max-h-[86dvh] flex flex-col shadow-2xl border border-slate-100">
 
         <div className="flex items-start justify-between gap-3 p-5 pb-3 border-b border-slate-100">
           <div>
@@ -883,7 +883,7 @@ export default function MessagesView({
           </div>
         )}
 
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden flex h-[calc(100dvh-250px)] min-h-[440px] md:h-[calc(100dvh-220px)] lg:h-[calc(100dvh-190px)]">
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-xs overflow-hidden flex h-[calc(100dvh-11.5rem)] min-h-[320px] md:h-[calc(100dvh-13.75rem)] lg:h-[calc(100dvh-11.875rem)]">
 
           {/* ── Conversation list ───────────────────────────────────────── */}
           <aside className={`${activeId ? 'hidden md:flex' : 'flex'} w-full md:w-[300px] lg:w-[340px] shrink-0 flex-col border-r border-slate-100 min-h-0`}>

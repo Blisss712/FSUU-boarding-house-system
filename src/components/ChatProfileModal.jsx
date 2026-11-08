@@ -122,7 +122,7 @@ export default function ChatProfileModal({ account, onClose, onOpenProperty }) {
         role="dialog"
         aria-modal="true"
         aria-label={`${person.name || 'Account'} profile`}
-        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92vh] sm:max-h-[88vh] overflow-hidden"
+        className="w-full sm:max-w-md bg-white rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-100 flex flex-col max-h-[92dvh] sm:max-h-[88dvh] overflow-hidden pb-safe"
       >
         {/* ── Header ─────────────────────────────────────────────── */}
         <div className="relative shrink-0 px-5 pt-5 pb-4 bg-gradient-to-br from-[#0b1a30] via-[#12284c] to-[#1c3f76] text-white">

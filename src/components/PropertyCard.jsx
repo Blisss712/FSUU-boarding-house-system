@@ -104,9 +104,9 @@ export default function PropertyCard({
 
             {gateDistance && (
               <div className={`flex items-center gap-1 px-2.5 py-1.5 rounded-xl backdrop-blur-sm text-[11px] font-bold shadow-sm ${
-                gateDistance.walkMinutes <= 5
+                gateDistance.minutes <= 5
                   ? 'bg-emerald-500 text-white'
-                  : gateDistance.walkMinutes <= 10
+                  : gateDistance.minutes <= 10
                   ? 'bg-amber-500 text-white'
                   : 'bg-white/85 text-slate-800'
               }`}>
