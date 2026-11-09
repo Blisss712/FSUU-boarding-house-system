@@ -34,6 +34,54 @@ Built specifically for the student and landlord community of **Father Saturnino 
 
 ---
 
+## 🌙 Dark Mode
+
+The whole UI can switch to a dark theme — classrooms at night, dorm rooms with
+one lamp, and OLED phones all get a proper dark palette instead of a
+light-on-dark flip.
+
+- **Where:** the moon/sun button in the header (every screen size), and the
+  **Dark mode** switch in **Profile → Appearance**.
+- **Remembers the choice:** stored in `localStorage` (`balay-theme`), applied by
+  a tiny inline script in `index.html` before the first paint, so there is no
+  white flash while the bundle loads.
+- **Follows the device first:** until the visitor taps the toggle, the app opens
+  in whatever mode the OS is in (`prefers-color-scheme`) and keeps following it
+  live. One tap pins an explicit choice.
+- **Also themed:** the Leaflet map (dark tile filter, dark zoom/attribution
+  chrome), scrollbars, native form controls (`color-scheme`), the mobile browser
+  theme colour, and printed-safe colours for tinted notices and amber badges.
+
+| Explore feed · light | Explore feed · dark |
+|---|---|
+| ![Explore feed in light mode](docs/dark-mode/desktop-light.jpg) | ![Explore feed in dark mode](docs/dark-mode/desktop-dark.jpg) |
+
+<p align="center">
+  <img src="docs/dark-mode/mobile-dark.jpg" width="250" alt="Dark mode on a phone" />
+  <img src="docs/dark-mode/profile-appearance.jpg" width="320" alt="Dark mode switch in Profile → Appearance" />
+</p>
+
+**How it works (and how to keep it working)**
+
+The components keep a single, light-theme `className` list. `src/styles/dark-theme.css`
+maps every colour utility Tailwind actually emits — `bg-white`, `text-slate-500`,
+`bg-amber-50`, `hover:border-slate-300`, `placeholder:text-slate-400`,
+`from-[#0b1a30]` … — onto the dark palette, using unlayered rules so they win
+over Tailwind's `utilities` layer without `!important`.
+
+That file is **generated**. `scripts/build-dark-theme.mjs` reads the CSS from the
+last build and rewrites it, so re-run it after adding new colours:
+
+```bash
+npm run theme:sync   # build → regenerate the palette map → build again
+```
+
+`npm run build` already regenerates it automatically (`prebuild`), and
+`npm run dev` uses the committed copy. Components that need a one-off tweak can
+still use Tailwind's `dark:` variant, which is wired to the same `html.dark` class.
+
+---
+
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
@@ -440,8 +488,11 @@ All database queries are handled directly via the official Supabase Client (`@su
 serjon/
 ├── src/                                  # Pure Client-Side Supabase-Powered React App
 │   ├── components/                       # UI components (Pads, Tenancy, Filters, Maps, Messages, Modals)
-│   │   └── AiNeedsSearchModal.jsx        # AI needs list + ranked pads panel
+│   │   ├── AiNeedsSearchModal.jsx        # AI needs list + ranked pads panel
+│   │   └── ThemeToggle.jsx               # Header moon/sun button + Profile switch
 │   ├── context/                          # AuthContext (Supabase Auth Session Management)
+│   │   └── ThemeContext.jsx              # Light/dark theme, persistence, OS preference
+│   ├── styles/dark-theme.css             # Generated dark palette map (npm run theme:sync)
 │   ├── lib/                              # supabase.js (createClient with persistSession)
 │   ├── services/                         # api.js (100% direct-to-Supabase query layer)
 │   │   ├── aiSearch.js                   # AI search client (proxy call, errors, cache)
@@ -454,6 +505,7 @@ serjon/
 │   ├── fix-deleted-accounts.sql          # Keeps the Auditor tab in sync with Supabase Auth
 │   └── clean-demo-data.sql               # Removes legacy seeded demo rows
 ├── scripts/                              # Helper administrative scripts
+│   ├── build-dark-theme.mjs              # Regenerates src/styles/dark-theme.css
 │   ├── clean-demo-data.js                # Deletes demo listings, users, and auth accounts
 │   ├── vite-ai-proxy.js                  # Server-side Gemini proxy (key never in the bundle)
 │   ├── test-ai-needs.mjs                 # Unit tests for the needs contract

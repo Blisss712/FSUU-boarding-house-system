@@ -1,5 +1,6 @@
 import React from 'react';
 import { SlidersHorizontal, MapPin, Building2, LogOut, LogIn, UserPlus, X, Sparkles } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
 
 export default function Header({
   searchQuery,
@@ -39,7 +40,9 @@ export default function Header({
             <div className="w-10 h-10 rounded-2xl bg-[#0b1a30] flex items-center justify-center text-amber-400 shadow-sm group-hover:scale-105 transition-transform shrink-0">
               <Building2 className="w-5 h-5 text-amber-400" />
             </div>
-            <div>
+            {/* min-w-0 lets the name/location truncate instead of sliding under
+                the action buttons on very narrow phones. */}
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5 min-w-0">
                 <span className="font-extrabold text-[17px] text-[#0b1a30] tracking-tight leading-none truncate">
                   Balay Urios
@@ -120,6 +123,9 @@ export default function Header({
               </span>
             )}
           </button>
+
+          {/* ── Dark mode toggle ──────────────────────────────────── */}
+          <ThemeToggle />
 
           {/* ── Auth zone ──────────────────────────────────────────── */}
           {user ? (

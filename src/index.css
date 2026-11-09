@@ -1,5 +1,11 @@
 @import "tailwindcss";
 @import "leaflet/dist/leaflet.css";
+@import "./styles/dark-theme.css";
+
+/* Dark mode is class based (`html.dark`), set by src/context/ThemeContext.jsx.
+   The generated palette map below does most of the work; this variant lets a
+   component opt into a one-off `dark:` tweak when it really needs one. */
+@custom-variant dark (&:where(.dark, .dark *));
 
 /* Real safe-area padding for the fixed bottom navigation (not a built-in
    Tailwind utility), so it clears the iPhone home indicator. */
@@ -159,4 +165,87 @@
 .serjon-map .leaflet-popup-content-wrapper {
   border-radius: 16px;
   box-shadow: 0 10px 30px rgba(15, 23, 42, 0.18);
+}
+
+/* ─── Dark mode chrome ───────────────────────────────────────────────────────
+   The utility classes themselves are re-mapped in styles/dark-theme.css. What
+   is left here is the page canvas, native widgets, and Leaflet's own chrome. */
+
+html.dark {
+  color-scheme: dark;
+  background-color: #0b1220;
+}
+
+html.dark body {
+  background-color: #0b1220;
+  color: #e7edf8;
+  transition: background-color 200ms ease, color 200ms ease;
+}
+
+html.dark ::selection {
+  background-color: #2c4670;
+  color: #f8fbff;
+}
+
+html.dark ::-webkit-scrollbar-thumb {
+  background: #2b3a55;
+}
+
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3d5170;
+}
+
+/* Leaflet: filtering the standard tiles is cheaper and sharper than shipping a
+   second tile set, and it keeps the map legible next to the dark cards. */
+html.dark .serjon-map {
+  background: #0b1220;
+}
+
+html.dark .serjon-map .leaflet-tile-pane {
+  filter: invert(1) hue-rotate(180deg) brightness(0.9) contrast(0.9) saturate(0.7);
+}
+
+html.dark .serjon-map .leaflet-control-zoom {
+  border-color: #26344e;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+html.dark .serjon-map .leaflet-control-zoom a {
+  background: rgba(20, 29, 49, 0.95);
+  color: #dbe4f3;
+  border-bottom-color: #26344e;
+}
+
+html.dark .serjon-map .leaflet-control-zoom a:hover {
+  background: #1c2942;
+}
+
+html.dark .serjon-map .leaflet-control-attribution {
+  background: rgba(20, 29, 49, 0.9);
+  color: #93a4bf;
+}
+
+html.dark .serjon-map .leaflet-control-attribution a {
+  color: #b9c7db;
+}
+
+html.dark .serjon-map .leaflet-popup-content-wrapper,
+html.dark .serjon-map .leaflet-popup-tip {
+  background: #141d31;
+  color: #e7edf8;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+}
+
+/* Amber chips and badges stay bright in both themes, so their ink has to stay
+   dark — the generic palette map turns every dark ink light instead. */
+html.dark .bg-amber-400.text-slate-950,
+html.dark .bg-amber-500.text-slate-950,
+html.dark .group:hover .group-hover\:text-slate-950 {
+  color: #201607;
+}
+
+/* The Profile appearance switch keeps a light thumb in both themes. */
+.theme-switch-thumb {
+  background-color: #f8fafc;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.28);
 }

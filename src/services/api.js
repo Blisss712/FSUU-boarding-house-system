@@ -92,6 +92,11 @@ const LANDLORD_VERIFICATION_COLUMNS = [
 // Public social handles added by supabase/add-social-links.sql.
 const SOCIAL_COLUMNS = ['facebook', 'instagram', 'twitter'];
 
+// Public, non-sensitive read path for landlord rows (supabase/rls-harden.sql).
+// The property feed paints the "Urios Verified" badge even for signed-out
+// visitors, and anon no longer has SELECT on the private `users` table.
+const LANDLORD_DIRECTORY_SOURCE = 'landlord_directory';
+
 function socialsOf(row) {
   if (!row) return { facebook: null, instagram: null, twitter: null };
   return {
@@ -302,9 +307,18 @@ export const api = {
     // verification-only, then to the original base columns so this keeps
     // working on projects that have not run the migrations yet.
     let { data, error } = await supabase
-      .from('users')
+      .from(LANDLORD_DIRECTORY_SOURCE)
       .select(withEverything)
       .eq('role', 'landlord');
+
+    // Projects that have not run supabase/rls-harden.sql have no view yet, so
+    // fall back to the table (the pre-migration behaviour).
+    if (error) {
+      ({ data, error } = await supabase
+        .from('users')
+        .select(withEverything)
+        .eq('role', 'landlord'));
+    }
 
     if (error && isMissingColumnError(error)) {
       ({ data, error } = await supabase

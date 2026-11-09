@@ -3,7 +3,7 @@ import {
   Bookmark, Clock, FileText, Award, Building2, Plus, Minus, 
   Share2, MapPin, Eye, Home, Zap, CheckCircle2, XCircle,
   Calendar, ShieldCheck, X, RefreshCw,
-  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck, MessageSquare
+  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck, MessageSquare, Moon
 } from 'lucide-react';
 import PropertyCard from './PropertyCard';
 import MessageLandlordButton from './MessageLandlordButton';
@@ -15,6 +15,7 @@ import CurfewApprovalModal from './CurfewApprovalModal';
 import StudentProfileModal from './StudentProfileModal';
 import PadTenantsModal from './PadTenantsModal';
 import SocialLinks from './SocialLinks';
+import { ThemeSwitch } from './ThemeToggle';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { padHasCurfew } from '../utils/curfew';
@@ -2331,6 +2332,20 @@ export function ProfileView({ onOpenAuth, onOpenLandlordProfile }) {
         <p className="text-[11px] leading-relaxed">
           Balay Urios works closely with FSUU Student Affairs & Supreme Student Government (SSG) to ensure all off-campus boarding facilities meet safety, sanitation, and flood security requirements.
         </p>
+      </div>
+
+      {/* ── Appearance ────────────────────────────────────────── */}
+      <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <span className="w-9 h-9 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+            <Moon className="w-4 h-4 text-slate-600" />
+          </span>
+          <div className="min-w-0">
+            <p className="font-bold text-sm text-slate-900 leading-tight">Dark mode</p>
+            <p className="text-[11px] text-slate-500">Easier on the eyes at night. Saved on this device.</p>
+          </div>
+        </div>
+        <ThemeSwitch />
       </div>
 
       {/* ── Log out ───────────────────────────────────────────── */}

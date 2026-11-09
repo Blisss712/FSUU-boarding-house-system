@@ -8,7 +8,9 @@
   },
   "scripts": {
     "dev": "vite",
+    "prebuild": "vite build --logLevel error && node scripts/build-dark-theme.mjs",
     "build": "vite build",
+    "theme:sync": "npm run build",
     "preview": "vite preview",
     "lint": "oxlint",
     "test:ai": "node scripts/test-ai-needs.mjs && node scripts/test-ai-proxy.mjs",
