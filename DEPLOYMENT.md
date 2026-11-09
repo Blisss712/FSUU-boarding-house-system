@@ -34,6 +34,14 @@ schema files from `supabase/` in this order:
 `fix-*.sql` files are patches for older installs; run one only if you hit the
 problem it fixes. `clean-demo-data.sql` is optional and destructive.
 
+`fix-deleted-accounts.sql` is worth running on **every** project (new or old):
+it installs the `auth.users` delete trigger and the `live_landlord_accounts()`
+RPC that keep the **Auditor** tab in sync with Supabase Authentication, so an
+account deleted in **Authentication → Users** disappears from the landlord /
+ID-approval list instead of lingering as a ghost. It also removes rows that were
+already orphaned by earlier deletions. `full-setup.sql` now contains the same
+trigger and RPC for fresh installs.
+
 Then:
 
 - **Storage** → create a **private** bucket named `landlord-ids` (the ID upload
@@ -129,6 +137,7 @@ The function then enforces 12 searches/minute per client across all instances.
 | Login redirects to localhost | Supabase **Site URL** still points at localhost |
 | Chat list empty / inserts denied | Re-run `add-messaging.sql` (it restores RLS + realtime) |
 | ID upload fails | `landlord-ids` bucket missing or policies not applied |
+| Deleted account still listed in the Auditor tab | Run `fix-deleted-accounts.sql` (auth delete trigger + `live_landlord_accounts()` RPC + one-time orphan cleanup) |
 | `VITE_*` value not updating | Variables are build-time; trigger a new deployment |
 
 ---

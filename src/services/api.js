@@ -432,6 +432,52 @@ export const api = {
   },
 
   /**
+   * Raw landlord profile rows for the Auditor tab.
+   *
+   * `public.users` is a profile copy of Supabase Auth, not a child table with a
+   * foreign key to `auth.users`, so deleting an account in Authentication used
+   * to leave its profile (and its valid-ID row) behind — a ghost entry in the
+   * audit that can never sign in again.
+   *
+   * `public.live_landlord_accounts()` (from supabase/fix-deleted-accounts.sql)
+   * reads through `auth.users` and only returns accounts that still exist, so
+   * the audit is always anchored to the authentication source of truth. The
+   * RPC is admin-only; on projects that have not run that migration it is simply
+   * missing and this falls back to the plain table read (the same data the old
+   * code used).
+   */
+  async _readLandlordAccounts() {
+    try {
+      const { data, error } = await supabase.rpc('live_landlord_accounts');
+      if (!error && Array.isArray(data)) return data;
+
+      if (error) {
+        const missingFunction = /could not find the function|schema cache|does not exist/i
+          .test(error.message || '');
+        if (!missingFunction) {
+          console.warn('[Supabase live_landlord_accounts warning]:', error.message);
+        }
+      }
+    } catch (err) {
+      console.warn('[Supabase live_landlord_accounts exception]:', err.message);
+    }
+
+    // `select('*')` never fails when the optional verification columns have not
+    // been migrated yet; rows simply lack those fields and normalize to pending.
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('role', 'landlord');
+
+    if (error) {
+      console.error('[Supabase getLandlords error]:', error.message);
+      throw new ApiError(`Failed to load landlord accounts: ${error.message}`, 500);
+    }
+
+    return data || [];
+  },
+
+  /**
    * All landlord accounts, for the Auditor tab. Returns public profile rows
    * (password hashes removed) including their verification state.
    *
@@ -441,21 +487,12 @@ export const api = {
    * "URIOS VERIFIED" next to "No ID submitted".
    */
   async getLandlords() {
-    // `select('*')` never fails when the optional verification columns have not
-    // been migrated yet; rows simply lack those fields and normalize to pending.
-    const [usersResult, idStatuses] = await Promise.all([
-      supabase.from('users').select('*').eq('role', 'landlord'),
+    const [rows, idStatuses] = await Promise.all([
+      this._readLandlordAccounts(),
       this.getLandlordIdStatuses()
     ]);
 
-    const { data, error } = usersResult;
-
-    if (error) {
-      console.error('[Supabase getLandlords error]:', error.message);
-      throw new ApiError(`Failed to load landlord accounts: ${error.message}`, 500);
-    }
-
-    return (data || [])
+    return rows
       .map(row => this._applyValidIdGate(publicUser(row), idStatuses))
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
   },

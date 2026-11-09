@@ -162,6 +162,44 @@ unapproved ID as pending, even before the cleanup runs.
 - Then run `supabase/add-verification-workflow.sql` once to enforce the
   ID-before-account order in the database.
 
+### Deleting an Account (and why the Auditor tab used to keep showing it)
+
+The Auditor tab is not a cached copy: it re-reads **Supabase** every time it
+opens (`api.getLandlords()` plus `api.getLandlordIdStatuses()`), and the
+**refresh** button next to the search box re-runs both reads. What it reads,
+though, is `public.users` and `public.landlord_ids` — profile tables that are
+**not** linked to `auth.users` by a foreign key. Deleting a user in
+**Authentication → Users** only removed the auth row, so the profile row and the
+valid-ID submission survived and kept showing up under **Landlord Accounts** /
+**Pending audit** with no way to sign in again.
+
+Run `supabase/fix-deleted-accounts.sql` once in the Supabase **SQL Editor** to
+close that gap. It is idempotent and does three things:
+
+1. Installs an `AFTER DELETE` trigger on `auth.users` that deletes the profile
+   row, the `landlord_ids` row and the saved listings. Deleting an account in
+   Authentication now removes it from the audit immediately (messaging rows
+   already cascade through `add-messaging.sql`).
+2. Adds the `live_landlord_accounts()` RPC, which returns only landlord profiles
+   that still exist in `auth.users`. `api.getLandlords()` reads through it, so
+   even a row orphaned before the trigger existed cannot reappear in the audit.
+   On a project without this migration the RPC is missing and the app falls back
+   to the plain table read, so nothing breaks.
+3. Runs a one-time cleanup that deletes profile / valid-ID rows whose auth
+   account is already gone — this is what removes the stale entries you are
+   looking at right now. Rows that never had an auth account (legacy seeded demo
+   profiles such as `user-student-jc`) are removed by the same rule.
+
+Listings, tenancy, receipts and curfew slips are **not** deleted, because they
+are business records rather than account data: a removed landlord's pads stay
+online so you can reassign or delete them deliberately, and they simply stop
+showing an Urios Verified host. ID photos already in the private `landlord-ids`
+bucket stay in Storage — delete the `<auth uid>/` folder there if you want them
+gone as well.
+
+`supabase/full-setup.sql` ships the same delete trigger and RPC, so new
+databases get this behaviour from the start.
+
 ### Explore Feed: Urios Verified vs All Listings
 
 The Explore feed has a two-way toggle above the results heading:
@@ -413,6 +451,7 @@ serjon/
 │   └── main.jsx                          # React 19 entry point
 ├── supabase/                             # Database migrations
 │   ├── full-setup.sql                    # Combined 1-click schema + RLS script
+│   ├── fix-deleted-accounts.sql          # Keeps the Auditor tab in sync with Supabase Auth
 │   └── clean-demo-data.sql               # Removes legacy seeded demo rows
 ├── scripts/                              # Helper administrative scripts
 │   ├── clean-demo-data.js                # Deletes demo listings, users, and auth accounts

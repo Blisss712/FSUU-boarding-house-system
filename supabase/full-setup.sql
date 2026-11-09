@@ -317,6 +317,87 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_auth_user();
 
 -- ============================================================
+-- SUPABASE AUTH TRIGGER: REMOVE THE PROFILE WHEN AN ACCOUNT IS DELETED
+-- ============================================================
+-- `public.users` has no foreign key to `auth.users`, so deleting an account in
+-- Authentication used to leave its profile (and its valid-ID row) behind. The
+-- Auditor tab reads those tables, so a deleted landlord kept appearing under
+-- "Landlord Accounts" / "Pending audit". This is the mirror image of the
+-- sign-up trigger above. See also supabase/fix-deleted-accounts.sql (same
+-- definitions + a one-time cleanup of rows orphaned before this existed).
+CREATE OR REPLACE FUNCTION public.handle_deleted_auth_user()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  removed_id text;
+BEGIN
+  -- Assigned in the body (not as a DECLARE default) so OLD is guaranteed to be
+  -- populated at the time the value is read.
+  removed_id := OLD.id::text;
+
+  IF to_regclass('public.landlord_ids') IS NOT NULL THEN
+    DELETE FROM public.landlord_ids WHERE "userId" = removed_id;
+  END IF;
+
+  IF to_regclass('public.saved_properties') IS NOT NULL THEN
+    DELETE FROM public.saved_properties WHERE "userId" = removed_id;
+  END IF;
+
+  DELETE FROM public.users WHERE id = removed_id;
+
+  RETURN OLD;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS on_auth_user_deleted ON auth.users;
+CREATE TRIGGER on_auth_user_deleted
+  AFTER DELETE ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.handle_deleted_auth_user();
+
+-- Landlord accounts that still exist in Authentication. api.getLandlords()
+-- reads through this so the audit can never list a deleted account. Compared in
+-- text (`a.id::text = u.id`) because legacy profile ids are not always UUIDs.
+CREATE OR REPLACE FUNCTION public.live_landlord_accounts()
+RETURNS SETOF public.users
+LANGUAGE plpgsql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  -- Admin = JWT metadata (public.is_admin) or the profile row the app also
+  -- honours (users.role = 'admin').
+  IF NOT (
+    public.is_admin()
+    OR EXISTS (
+      SELECT 1
+        FROM public.users me
+       WHERE me.id = COALESCE(auth.uid()::text, '')
+         AND me.role = 'admin'
+    )
+  ) THEN
+    RAISE EXCEPTION
+      'Only an FSUU auditor (admin) can list landlord accounts.'
+      USING ERRCODE = '42501';
+  END IF;
+
+  RETURN QUERY
+    SELECT u.*
+      FROM public.users u
+     WHERE u.role = 'landlord'
+       AND EXISTS (
+         SELECT 1 FROM auth.users a WHERE a.id::text = u.id
+       );
+END;
+$$;
+
+REVOKE ALL ON FUNCTION public.live_landlord_accounts() FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.live_landlord_accounts() TO authenticated;
+
+-- ============================================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ============================================================
 ALTER TABLE campuses ENABLE ROW LEVEL SECURITY;
