@@ -1416,6 +1416,13 @@ export const api = {
       throw new ApiError(error.message, 500);
     }
 
+    // Postgres reports success even when RLS filtered every row out, so a null
+    // result means nothing was written. Throw instead of returning a phantom
+    // row — otherwise the UI shows a count that disappears on the next reload.
+    if (!data) {
+      throw new ApiError('Vacancy was not updated. You can only change your own listings.', 403);
+    }
+
     return sanitizeRow(data);
   },
 

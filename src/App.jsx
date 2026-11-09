@@ -505,22 +505,29 @@ export default function App() {
   };
 
   const handleUpdatePropertyAvailability = async (propertyId, count, tag, color) => {
-    setProperties(prev => prev.map(p => {
-      if (p.id === propertyId) {
-        return {
-          ...p,
-          availableCount: count,
-          statusTag: tag,
-          statusColor: color
-        };
-      }
-      return p;
-    }));
+    // Patch every copy the UI can be drawing. `myListings` is what the landlord
+    // hub (MyListingsView) actually renders, so patching only `properties` left
+    // the vacancy stepper looking dead: the write reached Supabase while the
+    // card — and the "Total Available" stat — kept showing the old count.
+    const patch = (list) => list.map(p => (
+      p.id === propertyId
+        ? { ...p, availableCount: count, statusTag: tag, statusColor: color }
+        : p
+    ));
+
+    setProperties(patch);
+    setMyListings(patch);
 
     try {
       await api.updateAvailability(propertyId, count, tag, color);
-    } catch {
-      // Local state fallback preserved
+    } catch (err) {
+      // The write didn't land, so the optimistic count is a lie. Re-read the
+      // backend rather than leaving a value on screen that was never saved.
+      window.alert(err?.message || 'Could not update the vacancy count.');
+      await refreshMyListings();
+      api.getProperties()
+        .then(res => setProperties(Array.isArray(res) ? res : (res?.data || [])))
+        .catch(() => {});
     }
   };
 
