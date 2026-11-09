@@ -151,6 +151,20 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- Service-role scripts, direct SQL (Supabase SQL editor) and FK cascades run
+  -- without an auth user. Allow them through; anon still cannot reach this
+  -- update because the payments RLS policies above deny it.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Detaching a receipt is bookkeeping (the receipt FK's ON DELETE SET NULL,
+  -- or a pad being deleted), not a student re-pricing an invoice. Students can
+  -- still never attach or swap a receipt id.
+  IF NEW."receiptId" IS NULL AND OLD."receiptId" IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
   -- The owning landlord (or an admin) may change anything.
   IF public.owns_property(OLD."propertyId") OR public.is_admin() THEN
     RETURN NEW;
@@ -189,6 +203,17 @@ DROP TRIGGER IF EXISTS payments_guard_update ON public.payments;
 CREATE TRIGGER payments_guard_update
   BEFORE UPDATE ON public.payments
   FOR EACH ROW EXECUTE FUNCTION public.guard_payment_update();
+
+-- ------------------------------------------------------------
+-- Remove receipts created by the pre-ledger approval flow.
+-- Those rows were inserted automatically when a landlord approved a
+-- tenant — before any payment existed — so they are not proof that
+-- money was received. The payment ledger now issues them only after
+-- a verified payment.
+-- ------------------------------------------------------------
+DELETE FROM public.receipts
+ WHERE (id LIKE 'rec-board-%' OR "refNumber" LIKE 'BU-ESCROW-%')
+   AND status = 'Verified Official Escrow';
 
 -- ------------------------------------------------------------
 -- RECEIPTS: the boarder keeps their own history, the owning

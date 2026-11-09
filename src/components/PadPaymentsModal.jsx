@@ -25,7 +25,6 @@ import {
   getPaymentStatus,
   getAwaitingPayments,
   isPaymentOverdue,
-  receiptFromPayment,
   summarizePayments
 } from '../utils/payments';
 
@@ -171,8 +170,8 @@ export default function PadPaymentsModal({ isOpen, property, onClose, onChanged 
   };
 
   const openReceipt = (payment) => {
-    const receipt = payment.receipt || receiptFromPayment(payment);
-    if (receipt) setViewingReceipt({ receipt, payment });
+    if (!payment.receipt) return;
+    setViewingReceipt({ receipt: payment.receipt, payment });
   };
 
   return (
@@ -623,7 +622,7 @@ function PaymentLedgerRow({
           </>
         )}
 
-        {isPaid && (
+        {isPaid && payment.receipt && (
           <button
             type="button"
             onClick={onViewReceipt}
@@ -633,6 +632,13 @@ function PaymentLedgerRow({
             View Receipt
             <ChevronRight className="w-3 h-3" />
           </button>
+        )}
+
+        {isPaid && !payment.receipt && (
+          <span className="text-[10px] text-amber-700 font-bold flex items-center gap-1">
+            <AlertCircle className="w-3 h-3" />
+            Receipt not linked — re-run supabase/add-payments.sql
+          </span>
         )}
 
         {payment.status === 'cancelled' && (

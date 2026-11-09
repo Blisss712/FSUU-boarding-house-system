@@ -1512,12 +1512,17 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
   const [isLeaveModalOpen, setIsLeaveModalOpen] = React.useState(false);
   const [leaveSuccess, setLeaveSuccess] = React.useState('');
 
-  const fetchTenancyData = React.useCallback(async () => {
+  const fetchTenancyData = React.useCallback(async (options = {}) => {
+    const silent = Boolean(options.silent);
+
     if (!user || user.role !== 'boarder') {
       setLoading(false);
       return;
     }
-    setLoading(true);
+
+    // A payment refresh should not replace the whole screen, otherwise the
+    // PayNow success modal unmounts mid-confirmation.
+    if (!silent) setLoading(true);
     try {
       const [roomRes, receiptsRes, paymentsRes, slipsRes, applicationRes] = await Promise.all([
         api.getMyRoom(token).catch(() => ({ data: null })),
@@ -1534,9 +1539,11 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
       setCurfewSlips(Array.isArray(slipsRes?.data) ? slipsRes.data : []);
       setMyApplication(applicationRes?.data || null);
     } catch {
-      setTenancyData(null);
+      // A silent payment refresh must never wipe the tenancy pass on a
+      // transient network error; only the initial load may show empty.
+      if (!silent) setTenancyData(null);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [user, token]);
 
@@ -2096,7 +2103,7 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
         property={property}
         user={user}
         setupError={paymentError}
-        onRefresh={fetchTenancyData}
+        onRefresh={() => fetchTenancyData({ silent: true })}
       />
 
       {/* End Tenancy / Leave Tenancy Quick Card */}

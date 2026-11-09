@@ -30,7 +30,7 @@ function tenantName(tenant) {
 }
 
 function tenantUserId(tenant) {
-  return tenant?.userId || tenant?.student?.id || tenant?.id || '';
+  return tenant?.userId || tenant?.student?.id || '';
 }
 
 /**

@@ -633,6 +633,19 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
+  -- Service-role scripts, direct SQL and FK cascades run without an auth user;
+  -- allow maintenance updates. Anon cannot reach this because payments RLS
+  -- denies it.
+  IF auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
+
+  -- Detaching a receipt is bookkeeping (receipt FK cascade / pad deletion);
+  -- students still cannot attach or replace a receipt id.
+  IF NEW."receiptId" IS NULL AND OLD."receiptId" IS NOT NULL THEN
+    RETURN NEW;
+  END IF;
+
   IF public.owns_property(OLD."propertyId") OR public.is_admin() THEN
     RETURN NEW;
   END IF;

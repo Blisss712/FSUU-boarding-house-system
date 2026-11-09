@@ -38,12 +38,12 @@ export default function ReceiptModal({ receipt, payment, property, student, land
   const receiptId = receipt.id || payment?.receiptId || '—';
   const title = payment?.title || receipt.title || 'Rent Payment';
   const category = receipt.type || payment?.category || 'Rent';
-  const propertyName = payment?.propertyName || property?.name || 'Boarding House';
+  const propertyName = payment?.propertyName || receipt.propertyName || property?.name || 'Boarding House';
   const roomNumber = payment?.roomNumber || '';
   const payerName = student?.name || payment?.studentName || 'Student Boarder';
   const payerCourse = student?.course || '';
   const payerStudentId = student?.studentId || '';
-  const landlordName = landlord?.name || property?.landlord?.name || 'Landlord';
+  const landlordName = receipt.propertyLandlord?.name || landlord?.name || property?.landlord?.name || 'Landlord';
   const method = payment?.method || receipt.method || 'GCash / Escrow';
   const paymentDate = payment?.paidAt
     ? formatPaymentDate(payment.paidAt)
@@ -51,7 +51,7 @@ export default function ReceiptModal({ receipt, payment, property, student, land
   const periodLabel = payment?.periodLabel || '';
   const description = payment?.description || '';
   const verifiedAt = payment?.verifiedAt ? formatPaymentDate(payment.verifiedAt) : '';
-  const area = property?.area || '';
+  const area = receipt.propertyArea || property?.area || '';
 
   const handleCopy = async () => {
     try {

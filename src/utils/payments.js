@@ -197,29 +197,9 @@ export function summarizePayments(payments = []) {
 }
 
 /**
- * Build a receipt-shaped object from a paid payment. Used for payments whose
- * receipt row predates the receipt link, so history never silently loses one.
- */
-export function receiptFromPayment(payment, receiptRef) {
-  if (!payment) return null;
-  return {
-    id: `receipt-${payment.id}`,
-    userId: payment.studentId,
-    propertyId: payment.propertyId,
-    title: payment.title,
-    amount: paymentAmount(payment),
-    paymentDate: String(payment.paidAt || payment.verifiedAt || payment.updatedAt || todayISO()).slice(0, 10),
-    refNumber: receiptRef || payment.receiptRef || `BU-RCPT-${payment.id}`,
-    type: payment.category || 'Rent',
-    status: 'Verified Official Receipt',
-    method: payment.method || null,
-    periodLabel: payment.periodLabel || null
-  };
-}
-
-/**
  * Merge the `receipts` table with paid ledger entries so the student sees one
- * clean history (no duplicate rows when a payment is linked to its receipt).
+ * clean history. Only real receipt rows are shown — a paid row whose receipt is
+ * missing must never invent a receipt number.
  */
 export function buildReceiptHistory(payments = [], receipts = []) {
   const rows = new Map();
@@ -230,18 +210,9 @@ export function buildReceiptHistory(payments = [], receipts = []) {
   });
 
   payments.forEach((payment) => {
-    if (payment.status !== 'paid') return;
-
-    if (payment.receiptId && rows.has(payment.receiptId)) {
+    if (payment.status !== 'paid' || !payment.receiptId) return;
+    if (rows.has(payment.receiptId)) {
       rows.get(payment.receiptId).payment = payment;
-      return;
-    }
-
-    if (!payment.receiptId) {
-      rows.set(`paid-${payment.id}`, {
-        receipt: receiptFromPayment(payment),
-        payment
-      });
     }
   });
 

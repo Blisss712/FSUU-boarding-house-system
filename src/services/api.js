@@ -2552,16 +2552,42 @@ export const api = {
       throw new ApiError('You can only bill tenants of your own listings.', 403);
     }
 
+    // A request may only target someone who is actually boarding this pad.
+    // This also resolves the tenancy link and room number from the database
+    // instead of trusting whatever the client sent.
+    let resolvedTenancyId = tenancyId || null;
+    let resolvedRoomNumber = roomNumber || '';
+
+    if (!isAdmin) {
+      const { data: activeTenancy, error: tenancyError } = await supabase
+        .from('tenancy')
+        .select('id, userId, roomNumber')
+        .eq('propertyId', propertyId)
+        .eq('userId', studentId)
+        .eq('isActive', 1)
+        .maybeSingle();
+
+      if (tenancyError) {
+        throw new ApiError(`Could not verify the tenant's active tenancy: ${tenancyError.message}`, 500);
+      }
+      if (!activeTenancy) {
+        throw new ApiError('That student is not an active tenant of this boarding house.', 400);
+      }
+
+      resolvedTenancyId = activeTenancy.id || resolvedTenancyId;
+      resolvedRoomNumber = activeTenancy.roomNumber || resolvedRoomNumber;
+    }
+
     const now = new Date().toISOString();
     const record = {
       id: makePaymentId(),
       propertyId,
-      tenancyId: tenancyId || null,
+      tenancyId: resolvedTenancyId,
       landlordId: property.landlord?.userId || account.id,
       studentId,
       studentName,
       propertyName: propertyName || property.name || '',
-      roomNumber: roomNumber || '',
+      roomNumber: resolvedRoomNumber,
       title: String(title || '').trim() || `${category} payment`,
       category,
       amount: Math.round(amountNumber * 100) / 100,
@@ -2594,13 +2620,25 @@ export const api = {
    */
   async recordManualPayment(input = {}) {
     const created = await this.createPaymentRequest(input);
-    return this.verifyPayment(created.data.id, {
-      action: 'approve',
-      method: input.method || 'Cash',
-      referenceNumber: input.referenceNumber || `CASH-${Date.now().toString().slice(-6)}`,
-      paidAt: input.paidAt || null,
-      note: input.note || ''
-    });
+
+    try {
+      return await this.verifyPayment(created.data.id, {
+        action: 'approve',
+        method: input.method || 'Cash',
+        referenceNumber: input.referenceNumber || `CASH-${Date.now().toString().slice(-6)}`,
+        paidAt: input.paidAt || null,
+        note: input.note || ''
+      });
+    } catch (err) {
+      // Never leave a pending invoice behind when recording money failed
+      // halfway through (for example, if the receipt insert was rejected).
+      try {
+        await supabase.from('payments').delete().eq('id', created.data.id);
+      } catch {
+        // best effort
+      }
+      throw err;
+    }
   },
 
   /**
@@ -2859,7 +2897,36 @@ export const api = {
       return { success: true, count: 0, data: [] };
     }
 
-    return { success: true, count: (data || []).length, data: data || [] };
+    let rows = Array.isArray(data) ? data : [];
+
+    // A receipt is tied to the pad it was issued for, not necessarily the
+    // student's current pad. Carry the property details so an old receipt can
+    // never be displayed with today's boarding-house name.
+    const propertyIds = Array.from(new Set(rows.map(row => row.propertyId).filter(Boolean)));
+    if (propertyIds.length > 0) {
+      try {
+        const { data: properties } = await supabase
+          .from('properties')
+          .select('id, name, area, landlord')
+          .in('id', propertyIds);
+        const byId = {};
+        (properties || []).forEach(property => { byId[property.id] = property; });
+
+        rows = rows.map(row => {
+          const property = byId[row.propertyId];
+          return {
+            ...row,
+            propertyName: property?.name || null,
+            propertyArea: property?.area || null,
+            propertyLandlord: property?.landlord || null
+          };
+        });
+      } catch {
+        // Enrichment is optional; the receipt itself still renders.
+      }
+    }
+
+    return { success: true, count: rows.length, data: rows };
   },
 
   async getCurfewSlips(options = {}, _token) {
