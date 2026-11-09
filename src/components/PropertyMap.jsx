@@ -9,6 +9,7 @@ import {
   TileLayer,
   Marker,
   Circle,
+  Polyline,
   ZoomControl,
   AttributionControl,
   useMap,
@@ -282,10 +283,11 @@ function PickerRecenter({ lat, lng }) {
   return null;
 }
 
-export function LocationPickerMap({ value, onChange, className = '' }) {
+export function LocationPickerMap({ value, onChange, className = '', route = null }) {
   const hasValue =
     value && Number.isFinite(Number(value.lat)) && Number.isFinite(Number(value.lng));
   const position = hasValue ? [Number(value.lat), Number(value.lng)] : null;
+  const routePath = Array.isArray(route) && route.length > 1 ? route : null;
 
   return (
     <MapContainer
@@ -316,6 +318,26 @@ export function LocationPickerMap({ value, onChange, className = '' }) {
         keyboard={false}
         zIndexOffset={0}
       />
+
+      {/* The path the distance is measured on: the real walking route when the
+          router answered, otherwise the straight-line fallback. Distinct keys
+          force a fresh Leaflet layer — otherwise setStyle() merges the two and
+          the routed line keeps the fallback's dashes. */}
+      {routePath ? (
+        <Polyline
+          key={`route-${routePath.length}-${routePath[0]?.join(',')}`}
+          positions={routePath}
+          pathOptions={{ color: '#f59e0b', weight: 4, opacity: 0.9 }}
+          interactive={false}
+        />
+      ) : position ? (
+        <Polyline
+          key="straight-line-fallback"
+          positions={[[CAMPUS.lat, CAMPUS.lng], position]}
+          pathOptions={{ color: '#f59e0b', weight: 2.5, opacity: 0.85, dashArray: '6 8' }}
+          interactive={false}
+        />
+      ) : null}
 
       {position && (
         <Marker

@@ -1133,6 +1133,7 @@ export default function App() {
             setMobileFeedMode('list');
           }}
           onOpenMap={() => setMobileFeedMode('map')}
+          mapMode={mobileFeedMode === 'map'}
           savedCount={savedPropertyIds.length}
           user={user}
           myListingsCount={myListings.length}

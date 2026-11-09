@@ -18,13 +18,18 @@ import {
   Signal
 } from 'lucide-react';
 import { api } from '../services/api';
+import { getWalkingRoute } from '../services/routeApi';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import { LocationPickerMap } from './PropertyMap';
 import { padHasCurfew } from '../utils/curfew';
 import {
+  distanceMetersBetween,
   estimateCommuteMinutes,
   estimateWalkMinutes,
   formatDistance,
+  MAX_DISTANCE_METERS,
+  MIN_DISTANCE_METERS,
+  normalizeDistanceMeters,
   WALK_METERS_PER_MINUTE
 } from '../utils/distance';
 import { normalizeClaim } from '../utils/checklist';
@@ -169,6 +174,12 @@ const CARRIER_OPTIONS = [
 
 const EMPTY_CARRIERS = { dito: '', smart: '', globe: '' };
 
+// Pin → walking route tuning. A drag fires several events, so wait for the hand
+// to settle before asking the routing proxy.
+const ROUTE_DEBOUNCE_MS = 350;
+// A pin this far from the nearest mapped footpath is worth calling out.
+const ROUTE_SNAP_WARNING_METERS = 250;
+
 function normalizeCarrierSignals(signals) {
   const out = {};
   for (const { key } of CARRIER_FIELDS) {
@@ -232,6 +243,24 @@ export default function PadEditorModal({
   // own state so a host can override the derived tricycle/jeepney estimate.
   const [commuteMinutes, setCommuteMinutes] = useState('');
   const [distanceMeters, setDistanceMeters] = useState('');
+  // Where the distance came from: 'pin' = derived from the dropped map pin,
+  // 'manual' = typed by the landlord. Both stay editable — the flag only lets
+  // the form explain the current number and offer a one-tap re-derive.
+  const [distanceSource, setDistanceSource] = useState('manual');
+  // Non-blocking note about the pin itself (further than the 10 km cap, or
+  // dropped inside the 20 m floor) so an obviously wrong pin is never silent.
+  const [pinMetricNote, setPinMetricNote] = useState('');
+  // Street route from the pin to campus (OSRM foot profile via /api/route).
+  // `routeStatus` keeps the UI honest while the request is in flight: the
+  // straight-line number is shown first, then replaced by the routed one.
+  const [routeInfo, setRouteInfo] = useState(null);
+  const [routeStatus, setRouteStatus] = useState('idle'); // idle | loading | routed | failed
+  // Sequence guard: only the newest pin may write its route into the form.
+  const routeRequestRef = useRef(0);
+  // Set when the landlord types a number, so a slow route response can never
+  // overwrite a value they entered by hand.
+  const pinManuallyEditedRef = useRef(false);
+  const routeTimerRef = useRef(null);
   // What the student feed advertises: walking minutes or commute minutes.
   const [feedMode, setFeedMode] = useState('walk');
   const [latitude, setLatitude] = useState('');
@@ -255,6 +284,64 @@ export default function PadEditorModal({
   const [hasCurfew, setHasCurfew] = useState(true);
   const [isCurfewApprovalOpen, setIsCurfewApprovalOpen] = useState(false);
 
+  // ── Pin → walking route ───────────────────────────────────────────────────
+  // The pin handler applies a straight-line estimate instantly (so the form
+  // never feels dead), then this asks the same-origin `/api/route` proxy for the
+  // real street route. Debounced because a drag fires several events, and guarded
+  // by a request id plus a manual-edit flag so a slow answer can never overwrite
+  // a newer pin or a number the landlord typed.
+  const requestWalkingRoute = (lat, lng) => {
+    const requestId = routeRequestRef.current + 1;
+    routeRequestRef.current = requestId;
+    setRouteStatus('loading');
+    setRouteInfo(null);
+
+    if (routeTimerRef.current) clearTimeout(routeTimerRef.current);
+
+    routeTimerRef.current = setTimeout(async () => {
+      const result = await getWalkingRoute({ from: { lat, lng }, to: CAMPUS });
+
+      if (routeRequestRef.current !== requestId) return; // a newer pin took over
+      if (pinManuallyEditedRef.current) {
+        setRouteStatus('idle');
+        return;
+      }
+
+      if (!result.ok) {
+        setRouteStatus('failed');
+        setPinMetricNote(`Street routing is unavailable right now (${result.error?.code || 'error'}), so the distance is the straight-line fallback. You can still edit it.`);
+        return;
+      }
+
+      const routedMeters = normalizeDistanceMeters(result.distanceMeters);
+      setDistanceMeters(String(routedMeters));
+      setWalkingMinutes(String(estimateWalkMinutes(routedMeters)));
+      setCommuteMinutes(String(estimateCommuteMinutes(routedMeters)));
+      setDistanceSource('pin');
+      setRouteStatus('routed');
+      setRouteInfo({
+        provider: result.provider,
+        durationSeconds: result.durationSeconds,
+        snappedFromMeters: result.snappedFromMeters,
+        geometry: result.geometry,
+        computedAt: new Date().toISOString()
+      });
+
+      if (result.distanceMeters > MAX_DISTANCE_METERS) {
+        setPinMetricNote(`That pin is about ${formatDistance(result.distanceMeters)} from campus on foot, so the distance is capped at ${formatDistance(MAX_DISTANCE_METERS)}. Check the pin.`);
+      } else if (result.snappedFromMeters > ROUTE_SNAP_WARNING_METERS) {
+        setPinMetricNote(`Your pin is ${formatDistance(result.snappedFromMeters)} from the nearest mapped footpath, so the route starts from there. Move the pin onto the street for an exact number.`);
+      } else {
+        setPinMetricNote('');
+      }
+    }, ROUTE_DEBOUNCE_MS);
+  };
+
+  // Drop the pending route request when the editor closes.
+  useEffect(() => () => {
+    if (routeTimerRef.current) clearTimeout(routeTimerRef.current);
+  }, []);
+
   // Populate fields on edit mode
   useEffect(() => {
     if (isEdit && property) {
@@ -268,15 +355,38 @@ export default function PadEditorModal({
       setAdvanceDeposit(property.advanceDeposit || '');
       setMinContract(property.minContract || '');
       
-      const walk = property.gateProximities?.mainSFGate?.walkingMinutes;
+      const mainGate = property.gateProximities?.mainSFGate || {};
+      const walk = mainGate.walkingMinutes;
       if (walk !== undefined && walk !== null) setWalkingMinutes(Number(walk) > 0 ? walk : '');
-      const meters = property.gateProximities?.mainSFGate?.distanceMeters;
+      const meters = mainGate.distanceMeters;
       if (meters !== undefined && meters !== null) setDistanceMeters(Number(meters) > 0 ? meters : '');
-      setFeedMode(property.gateProximities?.mainSFGate?.feedMode === 'commute' ? 'commute' : 'walk');
+      // Rows saved before pin-derived distances existed carry no provenance flag,
+      // so they are treated as manual: the landlord opts into the auto value.
+      setDistanceSource(mainGate.distanceSource === 'pin' ? 'pin' : 'manual');
+      setPinMetricNote('');
+
+      // Restore the street route a previous save already calculated, so the map
+      // shows the real path and saving again does not lose it.
+      const storedRoute = mainGate.route;
+      if (storedRoute && Array.isArray(storedRoute.geometry) && storedRoute.geometry.length > 1) {
+        setRouteInfo({
+          provider: storedRoute.provider || 'osrm-foot',
+          durationSeconds: Number(storedRoute.durationSeconds) || 0,
+          snappedFromMeters: Number(storedRoute.snappedFromMeters) || 0,
+          geometry: storedRoute.geometry,
+          computedAt: storedRoute.computedAt || null
+        });
+        setRouteStatus('routed');
+      } else {
+        setRouteInfo(null);
+        setRouteStatus('idle');
+      }
+      pinManuallyEditedRef.current = false;
+      setFeedMode(mainGate.feedMode === 'commute' ? 'commute' : 'walk');
 
       // The ride time is stored too. Pads saved before it existed fall back to
       // the distance-based estimate instead of opening the edit form empty.
-      const ride = property.gateProximities?.mainSFGate?.commuteMinutes;
+      const ride = mainGate.commuteMinutes;
       const rideMeters = Number(meters) > 0
         ? Number(meters)
         : (Number(walk) > 0 ? Number(walk) * WALK_METERS_PER_MINUTE : 0);
@@ -287,6 +397,24 @@ export default function PadEditorModal({
       if (property.latitude != null && property.longitude != null) {
         setLatitude(Number(property.latitude));
         setLongitude(Number(property.longitude));
+
+        // A saved pin with no distance is exactly the case this feature fixes:
+        // derive the numbers from the pin instead of asking the host to retype
+        // them. Manual numbers already on the row are left untouched.
+        if (!(Number(meters) > 0)) {
+          const derivedMeters = normalizeDistanceMeters(
+            distanceMetersBetween(
+              { lat: Number(property.latitude), lng: Number(property.longitude) },
+              CAMPUS
+            )
+          );
+          setDistanceMeters(String(derivedMeters));
+          setWalkingMinutes(String(estimateWalkMinutes(derivedMeters)));
+          setCommuteMinutes(String(estimateCommuteMinutes(derivedMeters)));
+          setDistanceSource('pin');
+          // Upgrade that placeholder to the real street route right away.
+          requestWalkingRoute(Number(property.latitude), Number(property.longitude));
+        }
       } else {
         setLatitude('');
         setLongitude('');
@@ -403,6 +531,12 @@ export default function PadEditorModal({
       setWalkingMinutes('');
       setCommuteMinutes('');
       setDistanceMeters('');
+      setDistanceSource('manual');
+      setPinMetricNote('');
+      setRouteInfo(null);
+      setRouteStatus('idle');
+      routeRequestRef.current += 1;
+      pinManuallyEditedRef.current = false;
       setFeedMode('walk');
       setImageUrl('');
       setLatitude('');
@@ -437,6 +571,52 @@ export default function PadEditorModal({
     );
   };
 
+  /**
+   * The single place where a pin becomes a number.
+   *
+   * Dropping, dragging or GPS-locating the pin writes the exact coordinates,
+   * applies the straight-line estimate instantly, and then asks the routing
+   * proxy for the real walking route — which replaces the estimate a moment
+   * later. The feed choice (walk vs commute) stays the landlord's, and typing
+   * any of the three numbers overrides the auto value (`distanceSource`).
+   */
+  const applyPinLocation = (rawLat, rawLng) => {
+    const lat = Number(Number(rawLat).toFixed(6));
+    const lng = Number(Number(rawLng).toFixed(6));
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+
+    setLatitude(lat);
+    setLongitude(lng);
+    setLocationError('');
+    pinManuallyEditedRef.current = false;
+
+    const straightLineMeters = distanceMetersBetween({ lat, lng }, CAMPUS);
+    const derivedMeters = normalizeDistanceMeters(straightLineMeters);
+
+    setDistanceMeters(String(derivedMeters));
+    setWalkingMinutes(String(estimateWalkMinutes(derivedMeters)));
+    setCommuteMinutes(String(estimateCommuteMinutes(derivedMeters)));
+    setDistanceSource('pin');
+
+    if (straightLineMeters > MAX_DISTANCE_METERS) {
+      setPinMetricNote(`That pin is about ${formatDistance(straightLineMeters)} from campus, so the distance is capped at ${formatDistance(MAX_DISTANCE_METERS)}. Check the pin, or type the real distance if the location is right.`);
+    } else if (straightLineMeters < MIN_DISTANCE_METERS) {
+      setPinMetricNote(`That pin sits on campus itself. The app records at least ${MIN_DISTANCE_METERS} m so the distance stays meaningful.`);
+    } else {
+      setPinMetricNote('');
+    }
+
+    // Replace the estimate with the street route as soon as it arrives.
+    requestWalkingRoute(lat, lng);
+  };
+
+  // Re-derive from the pin that is already dropped, without moving it. Used
+  // after a landlord has typed a manual number and wants the auto value back.
+  const handleRecalculateFromPin = () => {
+    if (latitude === '' || longitude === '') return;
+    applyPinLocation(latitude, longitude);
+  };
+
   // One-tap pin: drop the landlord's exact spot from the device GPS.
   const handleUseCurrentLocation = () => {
     if (!navigator.geolocation) {
@@ -449,8 +629,7 @@ export default function PadEditorModal({
 
     navigator.geolocation.getCurrentPosition(
       (position) => {
-        setLatitude(Number(position.coords.latitude.toFixed(6)));
-        setLongitude(Number(position.coords.longitude.toFixed(6)));
+        applyPinLocation(position.coords.latitude, position.coords.longitude);
         setIsLocating(false);
       },
       (err) => {
@@ -496,13 +675,25 @@ export default function PadEditorModal({
     ));
   };
 
+  // Any typed value is an override: it must win over an in-flight route request
+  // and stop the form claiming the number came from the pin.
+  const markManualOverride = () => {
+    pinManuallyEditedRef.current = true;
+    setDistanceSource('manual');
+    setRouteStatus((prev) => (prev === 'loading' ? 'idle' : prev));
+  };
+
   // Walking minutes and distance are two ways of describing the same trip. The
   // form used to leave one at 0 when the host filled in the other, which made
   // the feed advertise "0 min walk" and the saved commute estimate 0. Typing
   // either value now keeps the other in sync.
+  //
+  // Typing always means an override: `distanceSource` flips to 'manual' so the
+  // pin badge stops claiming the number and "Recalculate" appears.
   const handleWalkingMinutesChange = (e) => {
     const raw = e.target.value;
     setWalkingMinutes(raw);
+    markManualOverride();
     const mins = Number(raw);
     if (Number.isFinite(mins) && mins > 0) {
       setDistanceMeters(String(Math.round(mins * WALK_METERS_PER_MINUTE)));
@@ -512,6 +703,7 @@ export default function PadEditorModal({
   const handleDistanceMetersChange = (e) => {
     const raw = e.target.value;
     setDistanceMeters(raw);
+    markManualOverride();
     const meters = Number(raw);
     if (Number.isFinite(meters) && meters > 0) {
       setWalkingMinutes(String(estimateWalkMinutes(meters)));
@@ -521,6 +713,7 @@ export default function PadEditorModal({
 
   const handleCommuteMinutesChange = (e) => {
     setCommuteMinutes(e.target.value);
+    markManualOverride();
   };
 
   // Switching the advertised mode must also switch the number the host edits,
@@ -579,6 +772,11 @@ export default function PadEditorModal({
     const typedWalkMins = Number(walkingMinutes) || 0;
     const typedRideMins = Number(commuteMinutes) || 0;
     const typedMeters = Number(distanceMeters) || 0;
+    // Raw great-circle metres for the pin, kept next to the distance so a future
+    // routed (street-following) value can be compared against it.
+    const straightFromPinMeters = latitude !== '' && longitude !== ''
+      ? distanceMetersBetween({ lat: Number(latitude), lng: Number(longitude) }, CAMPUS)
+      : 0;
     // Either field alone is enough: derive the missing one so a pad can never be
     // saved with a 0-minute walk (or a 0-minute ride) just because the host only
     // filled in the other box.
@@ -616,7 +814,24 @@ export default function PadEditorModal({
           distanceMeters: gateMeters,
           commuteMinutes: commuteMins,
           feedMode,
-          label: feedDistanceText
+          label: feedDistanceText,
+          // Provenance: lets a later edit tell an auto-derived number from one
+          // the landlord typed, and keeps the raw pin-to-campus line for audit.
+          distanceSource: distanceSource === 'pin' ? 'pin' : 'manual',
+          straightLineMeters: straightFromPinMeters > 0 ? Math.round(straightFromPinMeters) : null,
+          // The real street route behind an auto distance. Dropped when the value
+          // is manual or the straight-line fallback, so nothing can later mistake
+          // a stale path for the number that was actually saved.
+          route: distanceSource === 'pin' && routeStatus === 'routed' && Array.isArray(routeInfo?.geometry)
+            ? {
+                provider: routeInfo.provider || 'osrm-foot',
+                distanceMeters: gateMeters,
+                durationSeconds: Number(routeInfo.durationSeconds) || 0,
+                snappedFromMeters: Number(routeInfo.snappedFromMeters) || 0,
+                geometry: routeInfo.geometry,
+                computedAt: routeInfo.computedAt || new Date().toISOString()
+              }
+            : null
         }
       },
       wifiAudit: wifiUndecided ? {} : {
@@ -735,6 +950,11 @@ export default function PadEditorModal({
   const previewCommute = Number(commuteMinutes) || estimateCommuteMinutes(previewMeters);
   const previewWalkLabel = previewWalk > 0 ? `${previewWalk} min walk` : 'walk time not set';
   const previewCommuteLabel = previewCommute > 0 ? `${previewCommute} min ride` : 'ride time not set';
+
+  // Whether a pin exists at all, and what the form will actually save: the
+  // routed metres once the router answered, otherwise the straight-line estimate.
+  const hasPin = latitude !== '' && longitude !== '';
+  const appliedDistanceLabel = formatDistance(distanceMeters) || `${MIN_DISTANCE_METERS} m`;
 
   return (
     <div 
@@ -940,16 +1160,125 @@ export default function PadEditorModal({
               <span>3. Distance to FSUU Campus</span>
             </h4>
 
+            <p className="text-[10px] text-slate-500 leading-snug -mt-1">
+              Drop your pin first — we measure the <b>walking route</b> from it to
+              FSUU Main (following streets, not a straight line) and fill in the
+              distance plus the walk/ride minutes. Type any number to override it,
+              and pick below whether students see walking or commute time.
+            </p>
+
+            {/* Pin first: it is the source of every number in this section. */}
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <label className="block text-[11px] font-bold text-slate-600">
+                  Pin exact location on the map
+                </label>
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={handleUseCurrentLocation}
+                    disabled={isLocating}
+                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
+                  >
+                    <MapPin className="w-3 h-3 text-blue-600" />
+                    <span>{isLocating ? 'Locating...' : 'Use my current location'}</span>
+                  </button>
+                  {hasPin && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLatitude('');
+                        setLongitude('');
+                        setLocationError('');
+                        setPinMetricNote('');
+                        // The typed numbers stay, but they are no longer derived
+                        // from a pin, so stop advertising them as auto values.
+                        setDistanceSource('manual');
+                        // Abandon any route that is still in flight.
+                        routeRequestRef.current += 1;
+                        pinManuallyEditedRef.current = true;
+                        setRouteInfo(null);
+                        setRouteStatus('idle');
+                      }}
+                      className="text-[10px] font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                    >
+                      Clear pin
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {locationError && (
+                <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-1.5 mb-1.5">
+                  {locationError}
+                </p>
+              )}
+
+              <div className="h-52 w-full rounded-2xl overflow-hidden border border-slate-200">
+                <LocationPickerMap
+                  value={hasPin ? { lat: Number(latitude), lng: Number(longitude) } : null}
+                  onChange={({ lat, lng }) => applyPinLocation(lat, lng)}
+                  route={routeInfo?.geometry || null}
+                />
+              </div>
+
+              <div className="flex items-start justify-between gap-2 mt-1.5">
+                <p className="text-[10px] text-slate-500 leading-snug">
+                  {hasPin
+                    ? routeStatus === 'loading' && distanceSource !== 'manual'
+                      ? `Pinned at ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)} · calculating the walking route…`
+                      : distanceSource === 'manual'
+                        ? `Pinned at ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)} · ${appliedDistanceLabel} (your own number) to FSUU Main (${previewWalk} min walk / ${previewCommute} min ride). Drag the amber pin to fine-tune.`
+                        : `Pinned at ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)} · ${appliedDistanceLabel} ${routeStatus === 'routed' ? 'walking route' : 'straight-line fallback'} to FSUU Main (${previewWalk} min walk / ${previewCommute} min ride). Drag the amber pin to fine-tune.`
+                    : `Tap the map to drop your pin near ${CAMPUS.lat.toFixed(4)}, ${CAMPUS.lng.toFixed(4)} (FSUU Main). The walking route and the walk/ride minutes then fill in automatically.`}
+                </p>
+                {hasPin && (
+                  distanceSource === 'manual' ? (
+                    <button
+                      type="button"
+                      onClick={handleRecalculateFromPin}
+                      title="Recalculate the walking route and minutes from this pin"
+                      className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 transition-colors flex items-center gap-1 cursor-pointer"
+                    >
+                      <MapPin className="w-3 h-3 text-amber-600" />
+                      <span>Recalculate</span>
+                    </button>
+                  ) : routeStatus === 'loading' ? (
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 border border-slate-200">
+                      Routing…
+                    </span>
+                  ) : routeStatus === 'routed' ? (
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Routed auto
+                    </span>
+                  ) : (
+                    <span className="shrink-0 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-50 text-emerald-700 border border-emerald-200">
+                      Auto from pin
+                    </span>
+                  )
+                )}
+              </div>
+
+              {pinMetricNote && (
+                <p className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-2.5 py-1.5 mt-1.5">
+                  {pinMetricNote}
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-bold text-slate-600 mb-1">
                   {feedMode === 'commute' ? 'Commute Minutes to Main Gate' : 'Walking Minutes to Main Gate'}
                 </label>
+                {/* Guard rail wide enough for any pin the distance field
+                    accepts (10 km ≈ 133 min walk), so a derived value is
+                    never rejected by validation. */}
                 {feedMode === 'commute' ? (
                   <input
                     type="number"
                     min="1"
-                    max="120"
+                    max="300"
                     value={commuteMinutes}
                     onChange={handleCommuteMinutesChange}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
@@ -959,7 +1288,7 @@ export default function PadEditorModal({
                   <input
                     type="number"
                     min="1"
-                    max="60"
+                    max="300"
                     value={walkingMinutes}
                     onChange={handleWalkingMinutesChange}
                     className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
@@ -978,14 +1307,25 @@ export default function PadEditorModal({
                 </label>
                 <input
                   type="number"
-                  min="20"
-                  max="10000"
+                  min={MIN_DISTANCE_METERS}
+                  max={MAX_DISTANCE_METERS}
                   step="1"
                   value={distanceMeters}
                   onChange={handleDistanceMetersChange}
                   className="w-full px-3 py-2 rounded-xl bg-slate-50 border border-slate-200 font-bold text-slate-800 text-xs"
                   required
                 />
+                <p className="text-[10px] text-slate-400 font-semibold mt-1 leading-snug">
+                  {hasPin && distanceSource === 'pin'
+                    ? routeStatus === 'loading'
+                      ? 'Calculating the walking route from your pin…'
+                      : routeStatus === 'routed'
+                        ? `Auto: ${appliedDistanceLabel} walking route from your pin — it follows streets, not a straight line. Type a number to override.`
+                        : `Auto: ${appliedDistanceLabel} straight-line fallback. Type a number to override.`
+                    : hasPin
+                      ? 'Manual value. Moving the pin recalculates it — or press “Recalculate” to apply the pin value now.'
+                      : 'Drop a pin above to calculate this automatically, or type a measured distance.'}
+                </p>
               </div>
             </div>
 
@@ -1029,65 +1369,6 @@ export default function PadEditorModal({
                       ? `Feed shows “${previewWalk} min walk”.`
                       : 'Add walking minutes or a distance to show walk time in the feed.')}
                 {' '}The pad profile always lists both ({previewWalkLabel} · {previewCommuteLabel}), and distances switch to kilometres (e.g. {formatDistance(previewMeters) || '1.00 km'}) from 1 km up.
-              </p>
-            </div>
-
-            {/* Exact map pin */}
-            <div>
-              <div className="flex items-center justify-between gap-2 mb-1.5">
-                <label className="block text-[11px] font-bold text-slate-600">
-                  Pin exact location on the map
-                </label>
-                <div className="flex items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={handleUseCurrentLocation}
-                    disabled={isLocating}
-                    className="text-[10px] font-bold px-2 py-1 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 disabled:opacity-50 transition-colors flex items-center gap-1 cursor-pointer"
-                  >
-                    <MapPin className="w-3 h-3 text-blue-600" />
-                    <span>{isLocating ? 'Locating...' : 'Use my current location'}</span>
-                  </button>
-                  {(latitude !== '' || longitude !== '') && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setLatitude('');
-                        setLongitude('');
-                        setLocationError('');
-                      }}
-                      className="text-[10px] font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
-                    >
-                      Clear pin
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {locationError && (
-                <p className="text-[10px] font-bold text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-2.5 py-1.5 mb-1.5">
-                  {locationError}
-                </p>
-              )}
-
-              <div className="h-52 w-full rounded-2xl overflow-hidden border border-slate-200">
-                <LocationPickerMap
-                  value={
-                    latitude !== '' && longitude !== ''
-                      ? { lat: Number(latitude), lng: Number(longitude) }
-                      : null
-                  }
-                  onChange={({ lat, lng }) => {
-                    setLatitude(Number(lat.toFixed(6)));
-                    setLongitude(Number(lng.toFixed(6)));
-                  }}
-                />
-              </div>
-
-              <p className="text-[10px] text-slate-500 mt-1.5 leading-snug">
-                {latitude !== '' && longitude !== ''
-                  ? `Pinned at ${Number(latitude).toFixed(5)}, ${Number(longitude).toFixed(5)} — drag the amber pin to fine-tune.`
-                  : `Tap the map to drop your pin near ${CAMPUS.lat.toFixed(4)}, ${CAMPUS.lng.toFixed(4)} (FSUU Main). Students will see this exact spot on the public map.`}
               </p>
             </div>
           </div>

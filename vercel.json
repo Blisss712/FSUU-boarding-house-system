@@ -5,7 +5,8 @@
   "outputDirectory": "dist",
   "functions": {
     "api/ai-search.js": { "maxDuration": 60 },
-    "api/ai-status.js": { "maxDuration": 10 }
+    "api/ai-status.js": { "maxDuration": 10 },
+    "api/route.js": { "maxDuration": 15 }
   },
   "rewrites": [
     { "source": "/((?!api/).*)", "destination": "/index.html" }

@@ -11,6 +11,8 @@ Built specifically for the student and landlord community of **Father Saturnino 
 1. **Hyper-Local Gate & Commute Proximity:**
    - Filters tailored directly to FSUU Main Campus gates: **San Francisco St. Gate (Main Entrance)** and **J.C. Aquino Ave Gate (College Wing)**.
    - Standard tricycle fares (₱15) and walking times for each location.
+   - **Pin-to-Campus Walking Route:** dropping the amber pin in the landlord editor calculates the **real walking route** to FSUU Main (OSRM foot profile, following streets — not a straight line) and fills in the distance plus both the walking and commute minutes. The path is drawn on the picker, and nudging the pin re-routes it. Landlords can still type their own numbers (the form marks them **Manual** and offers one-tap **Recalculate**), and still choose whether students see walk or commute time.
+   - Routing runs through a same-origin proxy — `api/route.js` on Vercel, `scripts/vite-route-proxy.js` in dev/preview — because the CSP only allows `connect-src 'self'`. No API key is needed; a straight-line estimate is applied instantly as a placeholder and kept as the fallback if the router is unreachable. Provenance and the route geometry are stored in `gateProximities.mainSFGate` (`distanceSource`, `straightLineMeters`, `route`).
 
 2. **Student Reality Checklist (Butuan Verified):**
    - **Flood-Risk & Monsoon Elevation Rating:** Audited relative to regional Agusan River surge markers (+2.4m high ground certification) and historical 2022–2024 typhoon access.

@@ -1,10 +1,11 @@
 import React from 'react';
-import { Compass, Bookmark, Home, User, Building2, ShieldCheck, MessageSquare } from 'lucide-react';
+import { Compass, Bookmark, Home, User, Building2, ShieldCheck, MessageSquare, Map } from 'lucide-react';
 
 export default function BottomNav({
   activeTab,
   setActiveTab,
   onOpenMap,
+  mapMode = false,
   savedCount,
   user,
   myListingsCount = 0
@@ -45,15 +46,17 @@ export default function BottomNav({
 
   return (
     <>
-      {/* Floating Map View Pill (mobile/tablet only — desktop already shows the sticky map) */}
-      {activeTab === 'explore' && (
-        <div className="lg:hidden fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+      {/* Compact "Map View" pill (mobile/tablet explore feed only — hidden on
+          the map screen itself, which has its own "List View" toggle). */}
+      {activeTab === 'explore' && !mapMode && (
+        <div className="lg:hidden fixed bottom-[calc(4.25rem+env(safe-area-inset-bottom))] left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
           <button
             onClick={onOpenMap}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full bg-[#0b1a30] hover:bg-[#152a4d] text-white text-[12.5px] font-black shadow-xl border border-white/10 transition-all hover:scale-[1.03] active:scale-[0.97]"
+            title="Map view & gate proximity"
+            className="inline-flex items-center gap-1.5 pl-2.5 pr-3 py-1.5 rounded-full bg-[#0b1a30] hover:bg-[#152a4d] text-white text-[11px] font-bold shadow-lg border border-white/15 transition-all hover:scale-[1.03] active:scale-[0.97]"
           >
-            <span className="text-amber-400 text-sm">📍</span>
-            <span>Map View & Proximity</span>
+            <Map className="w-3.5 h-3.5 text-amber-400" />
+            <span>Map View</span>
           </button>
         </div>
       )}

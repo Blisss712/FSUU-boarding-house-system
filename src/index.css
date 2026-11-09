@@ -105,13 +105,14 @@
   transform: scale(1.08);
 }
 
-/* Keep the zoom control and map credit clear of the bottom property card. */
+/* Keep the zoom control and map credit clear of the bottom property card and
+   the "List View" toggle that sits on top of it. */
 .serjon-map .leaflet-bottom {
   bottom: 150px;
 }
 
 .serjon-map--fullscreen .leaflet-bottom {
-  bottom: 128px;
+  bottom: 176px;
 }
 
 .serjon-map--picker .leaflet-bottom {
