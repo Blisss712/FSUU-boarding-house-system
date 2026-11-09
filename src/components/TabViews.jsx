@@ -3,7 +3,8 @@ import {
   Bookmark, Clock, FileText, Award, Building2, Plus, Minus, 
   Share2, MapPin, Eye, Home, Zap, CheckCircle2, XCircle,
   Calendar, ShieldCheck, X, RefreshCw,
-  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck, MessageSquare, Moon
+  LogOut, DoorOpen, ChevronRight, Edit3, Users, UserCheck, MessageSquare, Moon,
+  Wallet
 } from 'lucide-react';
 import PropertyCard from './PropertyCard';
 import MessageLandlordButton from './MessageLandlordButton';
@@ -14,11 +15,14 @@ import LandlordVerificationModal from './LandlordVerificationModal';
 import CurfewApprovalModal from './CurfewApprovalModal';
 import StudentProfileModal from './StudentProfileModal';
 import PadTenantsModal from './PadTenantsModal';
+import PadPaymentsModal from './PadPaymentsModal';
+import StudentPaymentsCard from './StudentPaymentsCard';
 import SocialLinks from './SocialLinks';
 import { ThemeSwitch } from './ThemeToggle';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../services/api';
 import { padHasCurfew } from '../utils/curfew';
+import { formatPeso, summarizePayments } from '../utils/payments';
 import { getChecklistVerifiedCount, getStudentChecklist } from '../utils/checklist';
 
 export function SavedView({ savedProperties, allProperties = [], onSelectProperty, onToggleSave, onOpenCostCalc, onOpenWalkPov, onViewLandlord, onOpenAuth, onOpenChat }) {
@@ -127,6 +131,11 @@ export function MyListingsView({
   const [isTenantsModalOpen, setIsTenantsModalOpen] = React.useState(false);
   const [selectedTenantForProfile, setSelectedTenantForProfile] = React.useState(null);
 
+  // Payments: every invoice / receipt across the landlord's pads
+  const [propertyPayments, setPropertyPayments] = React.useState([]);
+  const [selectedPaymentProperty, setSelectedPaymentProperty] = React.useState(null);
+  const [isPaymentsModalOpen, setIsPaymentsModalOpen] = React.useState(false);
+
   const loadLandlordData = React.useCallback(async () => {
     if (!properties || properties.length === 0) return;
     try {
@@ -170,6 +179,18 @@ export function MyListingsView({
         // ignore
       }
 
+      // 5. Payment ledger across all of the landlord's pads
+      try {
+        const paymentsRes = await api.getPayments({ propertyIds: properties.map(p => p.id) });
+        if (paymentsRes && Array.isArray(paymentsRes.data)) {
+          setPropertyPayments(paymentsRes.data);
+        } else {
+          setPropertyPayments([]);
+        }
+      } catch {
+        setPropertyPayments([]);
+      }
+
       setPendingCounts(counts);
       setTenantsByProperty(tenantsMap);
     } catch {
@@ -182,6 +203,17 @@ export function MyListingsView({
   }, [loadLandlordData]);
 
   const totalRoomsAvailable = properties.reduce((sum, p) => sum + (p.availableCount || 0), 0);
+
+  const paymentTotals = React.useMemo(() => summarizePayments(propertyPayments), [propertyPayments]);
+
+  const paymentsByProperty = React.useMemo(() => {
+    const map = {};
+    propertyPayments.forEach((payment) => {
+      if (!map[payment.propertyId]) map[payment.propertyId] = [];
+      map[payment.propertyId].push(payment);
+    });
+    return map;
+  }, [propertyPayments]);
 
   const handleQuickCountChange = async (property, delta) => {
     const current = property.availableCount || 0;
@@ -263,7 +295,7 @@ export function MyListingsView({
         </div>
 
         {/* Quick Stats Pill Row */}
-        <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/10 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 pt-2 border-t border-white/10 text-center">
           <div className="bg-white/10 rounded-2xl p-2.5">
             <p className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300">Managed Pads</p>
             <p className="text-lg font-black text-white mt-0.5">{properties.length}</p>
@@ -273,6 +305,16 @@ export function MyListingsView({
             <p className="text-lg font-black text-emerald-400 mt-0.5">{totalRoomsAvailable} Rooms</p>
           </div>
           <div className="bg-white/10 rounded-2xl p-2.5">
+            <p className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300">Rent Collected</p>
+            <p className="text-sm sm:text-base font-black text-emerald-400 mt-1 truncate">{formatPeso(paymentTotals.collected)}</p>
+            <p className="text-[9px] font-semibold text-blue-200 mt-0.5">{paymentTotals.paidCount} receipts</p>
+          </div>
+          <div className={`rounded-2xl p-2.5 ${paymentTotals.awaitingCount > 0 ? 'bg-blue-500/25 ring-1 ring-blue-300/50' : 'bg-white/10'}`}>
+            <p className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300">To Verify</p>
+            <p className="text-lg font-black text-blue-200 mt-0.5">{paymentTotals.awaitingCount}</p>
+            <p className="text-[9px] font-semibold text-blue-200 mt-0.5">{formatPeso(paymentTotals.awaiting)}</p>
+          </div>
+          <div className="bg-white/10 rounded-2xl p-2.5 col-span-2 sm:col-span-1">
             <p className="text-[10px] uppercase tracking-wider font-extrabold text-blue-300">Campus Link</p>
             <p className="text-xs font-bold text-white mt-1 truncate">FSUU Main Campus</p>
           </div>
@@ -311,6 +353,7 @@ export function MyListingsView({
             const residents = tenantsByProperty[p.id] || [];
             const residentCount = residents.length;
             const residentsLabel = `${residentCount} Active ${residentCount === 1 ? 'Boarder' : 'Boarders'}`;
+            const padPaymentStats = summarizePayments(paymentsByProperty[p.id] || []);
 
             return (
               <div
@@ -566,6 +609,58 @@ export function MyListingsView({
                   </div>
                 )}
 
+                {/* Payments & Receipts snapshot for this pad */}
+                <div className={`p-3 rounded-2xl border space-y-2 ${
+                  padPaymentStats.awaitingCount > 0
+                    ? 'bg-blue-50 border-blue-300'
+                    : 'bg-gradient-to-r from-emerald-50/80 via-teal-50/40 to-slate-50 border-emerald-200/70'
+                }`}>
+                  <div className="flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-1.5 font-black text-slate-800">
+                      <Wallet className="w-4 h-4 text-emerald-700" />
+                      <span>Payments & Receipts</span>
+                      {padPaymentStats.awaitingCount > 0 && (
+                        <span className="px-1.5 py-0.5 rounded-full bg-blue-600 text-white text-[9px] font-black">
+                          {padPaymentStats.awaitingCount} to verify
+                        </span>
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedPaymentProperty(p);
+                        setIsPaymentsModalOpen(true);
+                      }}
+                      className="text-emerald-900 hover:text-emerald-700 font-extrabold text-[11px] flex items-center gap-0.5 cursor-pointer"
+                      title="Open the payment ledger for this pad"
+                    >
+                      <span>Open Ledger</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-1.5">
+                    <div className="rounded-xl bg-white border border-emerald-200 px-2 py-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-wide text-emerald-700">Collected</p>
+                      <p className="text-[11px] font-black text-emerald-900 truncate">{formatPeso(padPaymentStats.collected)}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-blue-200 px-2 py-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-wide text-blue-700">To Verify</p>
+                      <p className="text-[11px] font-black text-blue-900">{padPaymentStats.awaitingCount}</p>
+                    </div>
+                    <div className="rounded-xl bg-white border border-amber-200 px-2 py-1.5">
+                      <p className="text-[9px] font-black uppercase tracking-wide text-amber-700">Outstanding</p>
+                      <p className="text-[11px] font-black text-amber-900 truncate">{formatPeso(padPaymentStats.outstanding)}</p>
+                    </div>
+                  </div>
+
+                  {padPaymentStats.awaitingCount > 0 && (
+                    <p className="text-[10px] text-blue-800 font-semibold">
+                      A student submitted a payment reference — confirm it to issue the official receipt.
+                    </p>
+                  )}
+                </div>
+
                 {/* Pending Curfew Exemption Notice Alert for Landlord */}
                 {padHasCurfew(p) && (pendingCounts[p.id] || 0) > 0 && (
                   <div className="p-3 rounded-2xl bg-amber-50 border border-amber-200/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 text-xs">
@@ -660,6 +755,29 @@ export function MyListingsView({
                     <span>Tenants ({residentCount})</span>
                   </button>
 
+                  {/* Payments & Receipts Ledger Button */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedPaymentProperty(p);
+                      setIsPaymentsModalOpen(true);
+                    }}
+                    className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      padPaymentStats.awaitingCount > 0
+                        ? 'bg-blue-600 hover:bg-blue-700 text-white shadow-xs'
+                        : 'bg-emerald-50 hover:bg-emerald-100 text-emerald-950 border border-emerald-200'
+                    }`}
+                    title="Manage rent invoices, verify payments and open official receipts"
+                  >
+                    <Wallet className={`w-3.5 h-3.5 ${padPaymentStats.awaitingCount > 0 ? 'text-white' : 'text-emerald-700'}`} />
+                    <span>Payments</span>
+                    {padPaymentStats.awaitingCount > 0 && (
+                      <span className="px-1.5 py-0.2 rounded-full bg-white text-blue-800 text-[10px] font-black leading-none">
+                        {padPaymentStats.awaitingCount}
+                      </span>
+                    )}
+                  </button>
+
                   {onOpenParentShare && (
                     <button
                       type="button"
@@ -717,6 +835,20 @@ export function MyListingsView({
         onClose={() => {
           setIsTenantsModalOpen(false);
           setSelectedPropertyForTenants(null);
+        }}
+      />
+
+      {/* Payments & Official Receipts Ledger Modal */}
+      <PadPaymentsModal
+        isOpen={isPaymentsModalOpen}
+        property={selectedPaymentProperty}
+        onClose={() => {
+          setIsPaymentsModalOpen(false);
+          setSelectedPaymentProperty(null);
+        }}
+        onChanged={() => {
+          loadLandlordData();
+          onRefresh?.();
         }}
       />
 
@@ -1358,6 +1490,8 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
   const [loading, setLoading] = React.useState(true);
   const [tenancyData, setTenancyData] = React.useState(null);
   const [receipts, setReceipts] = React.useState([]);
+  const [payments, setPayments] = React.useState([]);
+  const [paymentError, setPaymentError] = React.useState('');
   const [curfewSlips, setCurfewSlips] = React.useState([]);
   // A pending / declined board application (not yet an active tenancy)
   const [myApplication, setMyApplication] = React.useState(null);
@@ -1385,15 +1519,18 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
     }
     setLoading(true);
     try {
-      const [roomRes, receiptsRes, slipsRes, applicationRes] = await Promise.all([
+      const [roomRes, receiptsRes, paymentsRes, slipsRes, applicationRes] = await Promise.all([
         api.getMyRoom(token).catch(() => ({ data: null })),
         api.getReceipts(token).catch(() => ({ data: [] })),
+        api.getPayments({ mine: true }).catch((err) => ({ data: [], error: err.message })),
         api.getCurfewSlips(token).catch(() => ({ data: [] })),
         api.getMyTenancyApplication(token).catch(() => ({ data: null }))
       ]);
 
       setTenancyData(roomRes?.data || null);
       setReceipts(Array.isArray(receiptsRes?.data) ? receiptsRes.data : []);
+      setPayments(Array.isArray(paymentsRes?.data) ? paymentsRes.data : []);
+      setPaymentError(paymentsRes?.error || '');
       setCurfewSlips(Array.isArray(slipsRes?.data) ? slipsRes.data : []);
       setMyApplication(applicationRes?.data || null);
     } catch {
@@ -1952,42 +2089,15 @@ export function MyRoomView({ onOpenAuth, onExplore, onSelectProperty, onOpenChat
       </div>
       )}
 
-      {/* Verified Official Rent Receipts & Escrow */}
-      <div className="p-4 rounded-2xl bg-white border border-slate-200 shadow-xs space-y-3">
-        <div className="flex items-center justify-between">
-          <h4 className="font-extrabold text-sm text-slate-900 flex items-center gap-1.5">
-            <FileText className="w-4 h-4 text-blue-600" />
-            <span>Verified Official Rent Receipts</span>
-          </h4>
-          <span className="text-[10px] bg-emerald-50 text-emerald-800 font-bold px-2 py-0.5 rounded border border-emerald-200">
-            GCash / Escrow
-          </span>
-        </div>
-
-        {receipts.length === 0 ? (
-          <p className="text-xs text-slate-400 italic py-2">No rent payment receipts recorded yet.</p>
-        ) : (
-          <div className="space-y-1.5 text-xs">
-            {receipts.map((rec) => (
-              <div key={rec.id} className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-bold text-slate-800">{rec.title}</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5">
-                    Paid {rec.paymentDate} · Ref: <span className="font-mono font-medium text-slate-700">{rec.refNumber}</span>
-                  </p>
-                </div>
-                <div className="text-right shrink-0">
-                  <span className="font-black text-slate-900 text-sm">₱{rec.amount.toLocaleString()}</span>
-                  <p className="text-[9px] text-emerald-600 font-bold flex items-center justify-end gap-0.5">
-                    <ShieldCheck className="w-3 h-3 text-emerald-600" />
-                    <span>Verified Escrow</span>
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      {/* Rent payments, outstanding dues & official receipts */}
+      <StudentPaymentsCard
+        payments={payments}
+        receipts={receipts}
+        property={property}
+        user={user}
+        setupError={paymentError}
+        onRefresh={fetchTenancyData}
+      />
 
       {/* End Tenancy / Leave Tenancy Quick Card */}
       <div className="p-4 rounded-3xl bg-white border border-slate-200/80 shadow-xs flex items-center justify-between gap-3">

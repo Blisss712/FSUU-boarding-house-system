@@ -230,7 +230,41 @@ CREATE TABLE IF NOT EXISTS receipts (
   status TEXT DEFAULT 'Verified Official Escrow'
 );
 
--- 11. STUDENT RATINGS FOR BOARDING HOUSES
+-- 11. RENT PAYMENTS & OFFICIAL RECEIPTS
+-- A landlord issues an invoice (payment request), the student pays and
+-- submits the reference, the landlord verifies it, and a receipt is
+-- issued. See supabase/add-payments.sql for the full migration notes.
+CREATE TABLE IF NOT EXISTS payments (
+  id TEXT PRIMARY KEY,
+  "propertyId" TEXT NOT NULL REFERENCES properties(id) ON DELETE CASCADE,
+  "tenancyId" TEXT REFERENCES tenancy(id) ON DELETE SET NULL,
+  "landlordId" TEXT,
+  "studentId" TEXT NOT NULL,
+  "studentName" TEXT,
+  "propertyName" TEXT,
+  "roomNumber" TEXT,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL DEFAULT 'Rent',
+  amount NUMERIC(12, 2) NOT NULL CHECK (amount > 0),
+  "dueDate" TEXT,
+  "periodLabel" TEXT,
+  description TEXT,
+  "payTo" TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'awaiting_verification', 'paid', 'rejected', 'cancelled')),
+  method TEXT,
+  "referenceNumber" TEXT,
+  "studentNote" TEXT,
+  "declineReason" TEXT,
+  "receiptId" TEXT REFERENCES receipts(id) ON DELETE SET NULL,
+  "paidAt" TIMESTAMPTZ,
+  "verifiedAt" TIMESTAMPTZ,
+  "verifiedBy" TEXT,
+  "createdAt" TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  "updatedAt" TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 12. STUDENT RATINGS FOR BOARDING HOUSES
 -- Only students who actually boarded a property may rate it. Everyone
 -- else may read the ratings. See supabase/add-property-reviews.sql.
 CREATE TABLE IF NOT EXISTS property_reviews (
@@ -261,6 +295,10 @@ CREATE INDEX IF NOT EXISTS idx_curfew_user ON curfew_slips("userId");
 CREATE INDEX IF NOT EXISTS idx_curfew_property ON curfew_slips("propertyId");
 CREATE INDEX IF NOT EXISTS idx_curfew_status ON curfew_slips(status);
 CREATE INDEX IF NOT EXISTS idx_receipts_user ON receipts("userId");
+CREATE INDEX IF NOT EXISTS idx_payments_property ON payments("propertyId");
+CREATE INDEX IF NOT EXISTS idx_payments_student ON payments("studentId");
+CREATE INDEX IF NOT EXISTS idx_payments_status ON payments(status);
+CREATE INDEX IF NOT EXISTS idx_payments_created ON payments("createdAt");
 CREATE INDEX IF NOT EXISTS idx_property_reviews_property ON property_reviews("propertyId");
 CREATE INDEX IF NOT EXISTS idx_property_reviews_user ON property_reviews("userId");
 
@@ -410,6 +448,7 @@ ALTER TABLE saved_properties ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenancy ENABLE ROW LEVEL SECURITY;
 ALTER TABLE curfew_slips ENABLE ROW LEVEL SECURITY;
 ALTER TABLE receipts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE payments ENABLE ROW LEVEL SECURITY;
 ALTER TABLE property_reviews ENABLE ROW LEVEL SECURITY;
 
 -- Drop previous policies to prevent duplicates on re-run.
@@ -485,6 +524,26 @@ AS $$
   );
 $$;
 
+-- Helper: does a stored user id belong to the signed-in account?
+-- Legacy rows can hold the public.users id instead of auth.uid(), so both
+-- the auth id and the profile id for the JWT email are accepted.
+CREATE OR REPLACE FUNCTION public.is_current_user(user_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT COALESCE(user_id = auth.uid()::text, false)
+      OR COALESCE(
+           user_id = (
+             SELECT u.id
+               FROM public.users u
+              WHERE lower(u.email) = lower(COALESCE(auth.jwt() ->> 'email', ''))
+              LIMIT 1
+           ),
+           false
+         );
+$$;
+
 -- Reference data (read-only)
 CREATE POLICY "campuses_select"   ON campuses   FOR SELECT USING (true);
 CREATE POLICY "appliances_select" ON appliances FOR SELECT USING (true);
@@ -544,11 +603,74 @@ CREATE POLICY "curfew_update" ON curfew_slips FOR UPDATE
 CREATE POLICY "curfew_delete" ON curfew_slips FOR DELETE
   USING ("userId" = auth.uid()::text OR public.is_admin());
 
--- Receipts: owner only
-CREATE POLICY "receipts_select" ON receipts FOR SELECT USING ("userId" = auth.uid()::text OR public.is_admin());
-CREATE POLICY "receipts_insert" ON receipts FOR INSERT WITH CHECK ("userId" = auth.uid()::text OR public.is_admin());
-CREATE POLICY "receipts_update" ON receipts FOR UPDATE USING ("userId" = auth.uid()::text OR public.is_admin());
-CREATE POLICY "receipts_delete" ON receipts FOR DELETE USING ("userId" = auth.uid()::text OR public.is_admin());
+-- Receipts: boarder / owning landlord / admin
+CREATE POLICY "receipts_select" ON receipts FOR SELECT
+  USING ("userId" = auth.uid()::text OR public.is_current_user("userId") OR public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "receipts_insert" ON receipts FOR INSERT
+  WITH CHECK ("userId" = auth.uid()::text OR public.is_current_user("userId") OR public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "receipts_update" ON receipts FOR UPDATE
+  USING  ("userId" = auth.uid()::text OR public.is_current_user("userId") OR public.owns_property("propertyId") OR public.is_admin())
+  WITH CHECK ("userId" = auth.uid()::text OR public.is_current_user("userId") OR public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "receipts_delete" ON receipts FOR DELETE
+  USING ("userId" = auth.uid()::text OR public.is_current_user("userId") OR public.owns_property("propertyId") OR public.is_admin());
+
+-- Payments: student reads/submits their own; owning landlord runs the ledger
+CREATE POLICY "payments_select" ON payments FOR SELECT
+  USING (public.is_current_user("studentId") OR public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "payments_insert" ON payments FOR INSERT
+  WITH CHECK (public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "payments_update" ON payments FOR UPDATE
+  USING  (public.is_current_user("studentId") OR public.owns_property("propertyId") OR public.is_admin())
+  WITH CHECK (public.is_current_user("studentId") OR public.owns_property("propertyId") OR public.is_admin());
+CREATE POLICY "payments_delete" ON payments FOR DELETE
+  USING (public.owns_property("propertyId") OR public.is_admin());
+
+-- A student may submit a payment reference, never verify or reprice it.
+CREATE OR REPLACE FUNCTION public.guard_payment_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF public.owns_property(OLD."propertyId") OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_current_user(OLD."studentId") THEN
+    IF NEW."studentId" <> OLD."studentId"
+       OR NEW."propertyId" <> OLD."propertyId"
+       OR NEW."landlordId" IS DISTINCT FROM OLD."landlordId"
+       OR NEW.amount <> OLD.amount
+       OR NEW.title <> OLD.title
+       OR NEW.category <> OLD.category
+       OR NEW."dueDate" IS DISTINCT FROM OLD."dueDate"
+       OR NEW."receiptId" IS DISTINCT FROM OLD."receiptId"
+       OR NEW."verifiedAt" IS DISTINCT FROM OLD."verifiedAt"
+       OR NEW."verifiedBy" IS DISTINCT FROM OLD."verifiedBy"
+    THEN
+      RAISE EXCEPTION 'Students may only submit a payment method, reference number and note.'
+        USING ERRCODE = '42501';
+    END IF;
+
+    IF NEW.status NOT IN ('pending', 'awaiting_verification') THEN
+      RAISE EXCEPTION 'Students cannot mark a payment as paid or cancelled.'
+        USING ERRCODE = '42501';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'You are not allowed to update this payment.'
+    USING ERRCODE = '42501';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS payments_guard_update ON payments;
+CREATE TRIGGER payments_guard_update
+  BEFORE UPDATE ON payments
+  FOR EACH ROW EXECUTE FUNCTION public.guard_payment_update();
+
 
 -- Boarding-house ratings: public read, write only for students who boarded.
 CREATE POLICY "property_reviews_select" ON property_reviews FOR SELECT USING (true);

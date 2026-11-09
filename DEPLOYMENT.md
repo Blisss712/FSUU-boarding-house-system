@@ -24,12 +24,13 @@ schema files from `supabase/` in this order:
 2. `add-map-coordinates.sql`
 3. `add-social-links.sql`
 4. `add-tenancy-approval.sql`
-5. `add-landlord-valid-id.sql`
-6. `add-messaging.sql`
-7. `add-verification-workflow.sql` — database guard that only lets a landlord be
+5. `add-payments.sql` — rent invoice → student payment → landlord verification → official receipt
+6. `add-landlord-valid-id.sql`
+7. `add-messaging.sql`
+8. `add-verification-workflow.sql` — database guard that only lets a landlord be
    marked Urios Verified after their valid ID is approved, plus a cleanup that
    revokes existing badges with no approved ID behind them. Run it **after**
-   step 5.
+   step 6.
 
 `fix-*.sql` files are patches for older installs; run one only if you hit the
 problem it fixes. `clean-demo-data.sql` is optional and destructive.
@@ -51,7 +52,7 @@ Then:
   - Redirect URLs: add the same URL and `http://localhost:5173` for local dev
 - **Authentication → Providers**: enable Email (and Google/GitHub if you want).
 - **Database → Publications**: confirm `messages`, `conversations` and
-  `conversation_members` are in `supabase_realtime` (step 6 does this).
+  `conversation_members` are in `supabase_realtime` (step 7 does this).
 
 Copy from **Project Settings → API**:
 

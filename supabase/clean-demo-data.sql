@@ -7,7 +7,7 @@
 --
 -- Demo listings ------------------------------------------------------------
 -- Deleting a property cascades to tenancy, saved_properties,
--- curfew_slips, receipts and ocular_visits via ON DELETE CASCADE.
+-- curfew_slips, receipts, payments and ocular_visits via ON DELETE CASCADE.
 DELETE FROM properties
 WHERE id IN (
   'villa-guingona',

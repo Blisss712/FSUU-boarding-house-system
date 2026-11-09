@@ -91,6 +91,25 @@ AS $$
   );
 $$;
 
+-- True when a stored user id belongs to the signed-in account. Legacy rows
+-- may hold the public.users id instead of auth.uid(), so match both.
+CREATE OR REPLACE FUNCTION public.is_current_user(user_id text)
+RETURNS boolean
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT COALESCE(user_id = auth.uid()::text, false)
+      OR COALESCE(
+           user_id = (
+             SELECT u.id
+               FROM public.users u
+              WHERE lower(u.email) = lower(COALESCE(auth.jwt() ->> 'email', ''))
+              LIMIT 1
+           ),
+           false
+         );
+$$;
+
 -- ------------------------------------------------------------
 -- Remove the old permissive policies (idempotent)
 -- The messaging tables are skipped on purpose: their policies belong to
@@ -231,19 +250,81 @@ CREATE POLICY "curfew_delete" ON curfew_slips FOR DELETE
   USING ("userId" = auth.uid()::text OR public.is_admin());
 
 -- ------------------------------------------------------------
--- receipts — owner only (boarder reads/writes their own)
+-- receipts — boarder, owning landlord, or admin
 -- ------------------------------------------------------------
 CREATE POLICY "receipts_select" ON receipts FOR SELECT
-  USING ("userId" = auth.uid()::text OR public.is_admin());
+  USING (
+    "userId" = auth.uid()::text
+    OR public.is_current_user("userId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
 
 CREATE POLICY "receipts_insert" ON receipts FOR INSERT
-  WITH CHECK ("userId" = auth.uid()::text OR public.is_admin());
+  WITH CHECK (
+    "userId" = auth.uid()::text
+    OR public.is_current_user("userId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
 
 CREATE POLICY "receipts_update" ON receipts FOR UPDATE
-  USING ("userId" = auth.uid()::text OR public.is_admin());
+  USING (
+    "userId" = auth.uid()::text
+    OR public.is_current_user("userId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  )
+  WITH CHECK (
+    "userId" = auth.uid()::text
+    OR public.is_current_user("userId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
 
 CREATE POLICY "receipts_delete" ON receipts FOR DELETE
-  USING ("userId" = auth.uid()::text OR public.is_admin());
+  USING (
+    "userId" = auth.uid()::text
+    OR public.is_current_user("userId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
+
+-- ------------------------------------------------------------
+-- payments — the rent ledger
+-- Run supabase/add-payments.sql first: it creates the table and the
+-- guard trigger that stops a student from verifying their own payment.
+-- ------------------------------------------------------------
+CREATE POLICY "payments_select" ON payments FOR SELECT
+  USING (
+    public.is_current_user("studentId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
+
+CREATE POLICY "payments_insert" ON payments FOR INSERT
+  WITH CHECK (
+    public.owns_property("propertyId")
+    OR public.is_admin()
+  );
+
+CREATE POLICY "payments_update" ON payments FOR UPDATE
+  USING (
+    public.is_current_user("studentId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  )
+  WITH CHECK (
+    public.is_current_user("studentId")
+    OR public.owns_property("propertyId")
+    OR public.is_admin()
+  );
+
+CREATE POLICY "payments_delete" ON payments FOR DELETE
+  USING (
+    public.owns_property("propertyId")
+    OR public.is_admin()
+  );
 
 -- ------------------------------------------------------------
 -- property_reviews — public read; write only for students who boarded
@@ -286,5 +367,53 @@ CREATE POLICY "visits_update" ON ocular_visits FOR UPDATE
     public.owns_property("propertyId")
     OR public.is_admin()
   );
+
+-- ------------------------------------------------------------
+-- A student may submit a payment reference, never verify or reprice it.
+-- ------------------------------------------------------------
+CREATE OR REPLACE FUNCTION public.guard_payment_update()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+BEGIN
+  IF public.owns_property(OLD."propertyId") OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF public.is_current_user(OLD."studentId") THEN
+    IF NEW."studentId" <> OLD."studentId"
+       OR NEW."propertyId" <> OLD."propertyId"
+       OR NEW."landlordId" IS DISTINCT FROM OLD."landlordId"
+       OR NEW.amount <> OLD.amount
+       OR NEW.title <> OLD.title
+       OR NEW.category <> OLD.category
+       OR NEW."dueDate" IS DISTINCT FROM OLD."dueDate"
+       OR NEW."receiptId" IS DISTINCT FROM OLD."receiptId"
+       OR NEW."verifiedAt" IS DISTINCT FROM OLD."verifiedAt"
+       OR NEW."verifiedBy" IS DISTINCT FROM OLD."verifiedBy"
+    THEN
+      RAISE EXCEPTION 'Students may only submit a payment method, reference number and note.'
+        USING ERRCODE = '42501';
+    END IF;
+
+    IF NEW.status NOT IN ('pending', 'awaiting_verification') THEN
+      RAISE EXCEPTION 'Students cannot mark a payment as paid or cancelled.'
+        USING ERRCODE = '42501';
+    END IF;
+
+    RETURN NEW;
+  END IF;
+
+  RAISE EXCEPTION 'You are not allowed to update this payment.'
+    USING ERRCODE = '42501';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS payments_guard_update ON payments;
+CREATE TRIGGER payments_guard_update
+  BEFORE UPDATE ON payments
+  FOR EACH ROW EXECUTE FUNCTION public.guard_payment_update();
 
 COMMIT;

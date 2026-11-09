@@ -248,6 +248,85 @@ async function getAuthIdentity() {
   }
 }
 
+// The signed-in account plus its role/profile, used by the payment ledger.
+async function getCurrentAccount() {
+  try {
+    const { data } = await supabase.auth.getUser();
+    const authUser = data?.user;
+    if (!authUser) return null;
+
+    let profile = null;
+    if (authUser.email) {
+      try {
+        const { data: row } = await supabase
+          .from('users')
+          .select('id, name, email, role, phone')
+          .eq('email', authUser.email)
+          .maybeSingle();
+        profile = row || null;
+      } catch {
+        profile = null;
+      }
+    }
+
+    const isAdmin =
+      authUser.user_metadata?.isAdmin === true
+      || authUser.user_metadata?.role === 'admin'
+      || profile?.role === 'admin';
+    const role = isAdmin ? 'admin' : (profile?.role || authUser.user_metadata?.role || 'boarder');
+
+    return {
+      authUser,
+      id: authUser.id ? String(authUser.id) : null,
+      email: authUser.email ? String(authUser.email).toLowerCase().trim() : null,
+      name: profile?.name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+      phone: profile?.phone || null,
+      profile,
+      role
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ─── Payment helpers ────────────────────────────────────────────────────────
+
+function makePaymentId() {
+  return `pay-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function makeReceiptRef() {
+  const now = new Date();
+  const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  return `BU-RCPT-${stamp}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+
+function addDays(days) {
+  const date = new Date();
+  date.setDate(date.getDate() + Number(days || 0));
+  return date.toISOString().split('T')[0];
+}
+
+function paymentsSetupError(error) {
+  const message = error?.message || 'Unknown Supabase error.';
+  const missing = /does not exist|schema cache|could not find the table|permission denied|row-level security/i.test(message);
+
+  return new ApiError(
+    missing
+      ? `Payments are not ready yet: ${message} Run supabase/add-payments.sql in Supabase to create the ledger.`
+      : `Payment request failed: ${message}`,
+    500
+  );
+}
+
+function normalizePaidAt(value) {
+  if (!value) return new Date().toISOString();
+  const text = String(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return `${text}T12:00:00.000Z`;
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+}
+
 /**
  * Canonical ownership test. `identity` is `{ id, email, propertyId }` and may
  * come from `getAuthIdentity()` (live auth) or the in-memory `user` object.
@@ -2160,29 +2239,57 @@ export const api = {
       console.warn('[approveTenantApplication - non-fatal vacancy update error]:', err.message);
     }
 
-    // Issue the official move-in escrow receipt (non-fatal).
-    let receiptRecord = null;
+    // Issue the move-in invoice (one month advance + one month deposit).
+    // The student pays it, the landlord verifies the payment, and only then is
+    // the official receipt created — a receipt must never claim money that was
+    // not actually recorded. Non-fatal if the payments migration is missing.
+    let paymentRequest = null;
     try {
-      const { data: propRow } = await supabase
-        .from('properties')
-        .select('price')
-        .eq('id', row.propertyId)
-        .maybeSingle();
+      const [{ data: propRow }, { data: studentRow }] = await Promise.all([
+        supabase
+          .from('properties')
+          .select('price, landlord')
+          .eq('id', row.propertyId)
+          .maybeSingle(),
+        supabase
+          .from('users')
+          .select('name, email')
+          .eq('id', row.userId)
+          .maybeSingle()
+      ]);
+
       const monthly = Number(propRow?.price) || 0;
-      receiptRecord = {
-        id: `rec-board-${Date.now()}`,
-        userId: row.userId,
-        propertyId: row.propertyId,
-        title: `Move-in Advance & Security Deposit (${row.propertyName || row.propertyId})`,
-        amount: monthly * 2,
-        paymentDate: new Date().toISOString().split('T')[0],
-        refNumber: `BU-ESCROW-${Math.floor(100000 + Math.random() * 900000)}`,
-        type: 'Advance Deposit & Move-In',
-        status: 'Verified Official Escrow'
-      };
-      await supabase.from('receipts').insert([receiptRecord]);
+      if (monthly > 0) {
+        // Do not double-bill if this application is approved more than once.
+        const { data: existingInvoice } = await supabase
+          .from('payments')
+          .select('id')
+          .eq('tenancyId', row.id)
+          .eq('category', 'Move-in')
+          .in('status', ['pending', 'awaiting_verification', 'paid'])
+          .maybeSingle();
+
+        if (!existingInvoice) {
+          const created = await this.createPaymentRequest({
+            propertyId: row.propertyId,
+            tenancyId: row.id,
+            studentId: row.userId,
+            studentName: studentRow?.name || 'Student',
+            propertyName: row.propertyName,
+            roomNumber: row.roomNumber,
+            title: 'Move-in Advance & Security Deposit',
+            category: 'Move-in',
+            amount: monthly * 2,
+            dueDate: addDays(7),
+            periodLabel: row.semester || '',
+            description: `${row.roomNumber}: one month advance plus one month security deposit.`,
+            payTo: propRow?.landlord?.phone || ''
+          });
+          paymentRequest = created.data;
+        }
+      }
     } catch (err) {
-      console.warn('[approveTenantApplication - non-fatal receipt error]:', err.message);
+      console.warn('[approveTenantApplication - non-fatal move-in invoice error]:', err.message);
     }
 
     // The approved boarder joins their pad's group chat automatically (the
@@ -2193,7 +2300,8 @@ export const api = {
       success: true,
       message: 'Application approved. The student is now an active tenant.',
       data: updateRes.data || { ...row, isActive: 1, status: 'active' },
-      receipt: receiptRecord
+      receipt: null,
+      paymentRequest
     };
   },
 
@@ -2306,6 +2414,430 @@ export const api = {
       message: 'Curfew exemption notice submitted. Pending landlord approval.',
       data: newSlip
     };
+  },
+
+  // ── Rent payments & official receipts ─────────────────────────────────────
+
+  /**
+   * Read the payment ledger.
+   *
+   *   getPayments()                       -> role-aware (student: own, landlord: own pads)
+   *   getPayments({ propertyId })         -> one pad's ledger (landlord view)
+   *   getPayments({ propertyIds: [...] }) -> several pads at once
+   *   getPayments({ mine: true })         -> always the signed-in student's rows
+   */
+  async getPayments(options = {}) {
+    const account = await getCurrentAccount();
+    if (!account) return { success: true, count: 0, data: [], error: null };
+
+    const opts = options || {};
+    let propertyIds = Array.isArray(opts.propertyIds) ? opts.propertyIds.filter(Boolean) : [];
+    let query = supabase.from('payments').select('*');
+
+    if (opts.propertyId) {
+      query = query.eq('propertyId', opts.propertyId);
+    } else if (propertyIds.length > 0) {
+      query = query.in('propertyId', propertyIds);
+    } else if (opts.mine || account.role === 'boarder') {
+      const candidateIds = await getUserCandidateIds(account.authUser);
+      query = query.in('studentId', candidateIds);
+    } else if (account.role === 'landlord') {
+      let listings = [];
+      try {
+        listings = await this.getMyListings();
+      } catch {
+        listings = [];
+      }
+      propertyIds = (listings || []).map(p => p.id).filter(Boolean);
+      if (propertyIds.length === 0) {
+        return { success: true, count: 0, data: [], error: null };
+      }
+      query = query.in('propertyId', propertyIds);
+    }
+    // Admins fall through with no filter and see the whole ledger.
+
+    const { data, error } = await query.order('createdAt', { ascending: false });
+
+    if (error) {
+      const wrapped = paymentsSetupError(error);
+      console.warn('[Supabase getPayments error]:', error.message);
+      return { success: false, count: 0, data: [], error: wrapped.message };
+    }
+
+    let rows = Array.isArray(data) ? data : [];
+
+    // Attach the issued receipt so the UI can open it without a second call.
+    const receiptIds = Array.from(new Set(rows.map(row => row.receiptId).filter(Boolean)));
+    if (receiptIds.length > 0) {
+      try {
+        const { data: receipts } = await supabase
+          .from('receipts')
+          .select('*')
+          .in('id', receiptIds);
+        const byId = {};
+        (receipts || []).forEach(receipt => { byId[receipt.id] = receipt; });
+        rows = rows.map(row => ({ ...row, receipt: row.receiptId ? (byId[row.receiptId] || null) : null }));
+      } catch {
+        // Receipt enrichment is optional; the ledger still renders.
+      }
+    }
+
+    return { success: true, count: rows.length, data: rows, error: null };
+  },
+
+  async getPaymentsByProperty(propertyId) {
+    if (!propertyId) return { success: true, count: 0, data: [], error: null };
+    return this.getPayments({ propertyId });
+  },
+
+  async getPropertyReceipts(propertyId) {
+    if (!propertyId) return { success: true, count: 0, data: [], error: null };
+
+    const { data, error } = await supabase
+      .from('receipts')
+      .select('*')
+      .eq('propertyId', propertyId)
+      .order('paymentDate', { ascending: false });
+
+    if (error) {
+      console.warn('[Supabase getPropertyReceipts error]:', error.message);
+      return { success: false, count: 0, data: [], error: error.message };
+    }
+
+    return { success: true, count: (data || []).length, data: data || [], error: null };
+  },
+
+  /**
+   * Landlord issues a payment request (invoice) for one of their tenants.
+   */
+  async createPaymentRequest(input = {}) {
+    const account = await getCurrentAccount();
+    if (!account) throw new ApiError('Authentication required.', 401);
+
+    const {
+      propertyId,
+      tenancyId = null,
+      studentId,
+      studentName = 'Student',
+      propertyName = '',
+      roomNumber = '',
+      title,
+      category = 'Rent',
+      amount,
+      dueDate = addDays(7),
+      periodLabel = '',
+      description = '',
+      payTo = ''
+    } = input;
+
+    if (!propertyId) throw new ApiError('A boarding house is required.', 400);
+    if (!studentId) throw new ApiError('Choose the tenant this payment is for.', 400);
+
+    const amountNumber = Number(amount);
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+      throw new ApiError('Enter a payment amount greater than zero.', 400);
+    }
+
+    const property = await this.getPropertyById(propertyId);
+    if (!property) throw new ApiError('Boarding house not found.', 404);
+
+    const isAdmin = account.role === 'admin';
+    const owns = landlordOwnsProperty(property, {
+      id: account.id,
+      email: account.email,
+      propertyId: null
+    });
+
+    if (!isAdmin && !owns) {
+      throw new ApiError('You can only bill tenants of your own listings.', 403);
+    }
+
+    const now = new Date().toISOString();
+    const record = {
+      id: makePaymentId(),
+      propertyId,
+      tenancyId: tenancyId || null,
+      landlordId: property.landlord?.userId || account.id,
+      studentId,
+      studentName,
+      propertyName: propertyName || property.name || '',
+      roomNumber: roomNumber || '',
+      title: String(title || '').trim() || `${category} payment`,
+      category,
+      amount: Math.round(amountNumber * 100) / 100,
+      dueDate: dueDate || addDays(7),
+      periodLabel: periodLabel || null,
+      description: String(description || '').trim() || null,
+      payTo: String(payTo || property.landlord?.phone || '').trim() || null,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now
+    };
+
+    const { data, error } = await supabase
+      .from('payments')
+      .insert([record])
+      .select()
+      .maybeSingle();
+
+    if (error) {
+      console.error('[Supabase createPaymentRequest error]:', error.message);
+      throw paymentsSetupError(error);
+    }
+
+    return { success: true, message: 'Payment request sent to the tenant.', data: data || record };
+  },
+
+  /**
+   * Landlord records cash / already-received money: creates the ledger entry and
+   * immediately verifies it, which issues the official receipt.
+   */
+  async recordManualPayment(input = {}) {
+    const created = await this.createPaymentRequest(input);
+    return this.verifyPayment(created.data.id, {
+      action: 'approve',
+      method: input.method || 'Cash',
+      referenceNumber: input.referenceNumber || `CASH-${Date.now().toString().slice(-6)}`,
+      paidAt: input.paidAt || null,
+      note: input.note || ''
+    });
+  },
+
+  /**
+   * Student confirms they sent the money and submits the reference number.
+   * The landlord must still verify it before a receipt is issued.
+   */
+  async submitPayment(paymentId, details = {}) {
+    const account = await getCurrentAccount();
+    if (!account) throw new ApiError('Authentication required to submit a payment.', 401);
+    if (!paymentId) throw new ApiError('A payment request is required.', 400);
+
+    const { data: payment, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('id', paymentId)
+      .maybeSingle();
+
+    if (error) throw paymentsSetupError(error);
+    if (!payment) throw new ApiError('Payment request not found.', 404);
+
+    const candidateIds = await getUserCandidateIds(account.authUser);
+    if (!candidateIds.includes(String(payment.studentId))) {
+      throw new ApiError('This payment request does not belong to your account.', 403);
+    }
+
+    if (!['pending', 'rejected'].includes(payment.status)) {
+      throw new ApiError('This payment is no longer open for submission.', 409);
+    }
+
+    const method = details.method || 'GCash';
+    const referenceNumber = String(details.referenceNumber || '').trim();
+
+    if (method !== 'Cash' && !referenceNumber) {
+      throw new ApiError('Enter the GCash / bank reference number for this payment.', 400);
+    }
+
+    const { data, error: updateError } = await supabase
+      .from('payments')
+      .update({
+        status: 'awaiting_verification',
+        method,
+        referenceNumber: referenceNumber || null,
+        studentNote: String(details.note || '').trim() || null,
+        paidAt: normalizePaidAt(details.paidAt),
+        declineReason: null,
+        updatedAt: new Date().toISOString()
+      })
+      .eq('id', paymentId)
+      .select()
+      .maybeSingle();
+
+    if (updateError) {
+      console.error('[Supabase submitPayment error]:', updateError.message);
+      throw new ApiError(`Could not submit the payment: ${updateError.message}`, 500);
+    }
+
+    return {
+      success: true,
+      message: 'Payment submitted. Your landlord will verify it and issue the official receipt.',
+      data: data || { ...payment, status: 'awaiting_verification', method, referenceNumber }
+    };
+  },
+
+  /**
+   * Landlord verifies (issues a receipt) or declines a submitted payment.
+   */
+  async verifyPayment(paymentId, options = {}) {
+    const account = await getCurrentAccount();
+    if (!account) throw new ApiError('Authentication required.', 401);
+    if (!paymentId) throw new ApiError('A payment is required.', 400);
+
+    const { data: payment, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('id', paymentId)
+      .maybeSingle();
+
+    if (error) throw paymentsSetupError(error);
+    if (!payment) throw new ApiError('Payment not found.', 404);
+
+    if (payment.status === 'paid') {
+      throw new ApiError('This payment has already been verified.', 409);
+    }
+    if (payment.status === 'cancelled') {
+      throw new ApiError('This payment request was cancelled.', 409);
+    }
+
+    const property = await this.getPropertyById(payment.propertyId);
+    const isAdmin = account.role === 'admin';
+    const owns = landlordOwnsProperty(property, {
+      id: account.id,
+      email: account.email,
+      propertyId: null
+    });
+
+    if (!isAdmin && !owns) {
+      throw new ApiError('Only the landlord who owns this listing can verify its payments.', 403);
+    }
+
+    const now = new Date().toISOString();
+    const action = options.action === 'decline' ? 'decline' : 'approve';
+
+    if (action === 'decline') {
+      const reason = String(options.note || options.declineReason || '').trim()
+        || 'The submitted payment could not be verified.';
+
+      const { data, error: declineError } = await supabase
+        .from('payments')
+        .update({
+          status: 'rejected',
+          declineReason: reason,
+          verifiedAt: now,
+          verifiedBy: account.id,
+          updatedAt: now
+        })
+        .eq('id', paymentId)
+        .select()
+        .maybeSingle();
+
+      if (declineError) {
+        throw new ApiError(`Could not decline the payment: ${declineError.message}`, 500);
+      }
+
+      return {
+        success: true,
+        message: 'Payment declined. The student can re-submit the correct reference.',
+        data: data || { ...payment, status: 'rejected', declineReason: reason }
+      };
+    }
+
+    const paidAt = normalizePaidAt(options.paidAt || payment.paidAt);
+    const paymentDate = paidAt.split('T')[0];
+    const receiptId = `rec-pay-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const refNumber = options.receiptRef || makeReceiptRef();
+
+    const receiptPayload = {
+      id: receiptId,
+      userId: payment.studentId,
+      propertyId: payment.propertyId,
+      title: payment.title,
+      amount: Number(payment.amount) || 0,
+      paymentDate,
+      refNumber,
+      type: payment.category || 'Rent',
+      status: 'Verified Official Receipt'
+    };
+
+    const { error: receiptError } = await supabase
+      .from('receipts')
+      .insert([receiptPayload]);
+
+    if (receiptError) {
+      console.error('[Supabase verifyPayment receipt error]:', receiptError.message);
+      throw new ApiError(
+        `Could not issue the official receipt: ${receiptError.message}. Make sure supabase/add-payments.sql has been run.`,
+        500
+      );
+    }
+
+    const { data, error: verifyError } = await supabase
+      .from('payments')
+      .update({
+        status: 'paid',
+        method: options.method || payment.method || 'Cash',
+        referenceNumber: options.referenceNumber || payment.referenceNumber || null,
+        receiptId,
+        paidAt,
+        verifiedAt: now,
+        verifiedBy: account.id,
+        declineReason: null,
+        updatedAt: now
+      })
+      .eq('id', paymentId)
+      .select()
+      .maybeSingle();
+
+    if (verifyError) {
+      // Do not leave an orphaned receipt behind if the ledger update failed.
+      try {
+        await supabase.from('receipts').delete().eq('id', receiptId);
+      } catch {
+        // best effort
+      }
+      throw new ApiError(`Could not mark the payment as paid: ${verifyError.message}`, 500);
+    }
+
+    return {
+      success: true,
+      message: 'Payment verified. The official receipt has been issued.',
+      data: { ...(data || payment), receipt: receiptPayload },
+      receipt: receiptPayload
+    };
+  },
+
+  async cancelPaymentRequest(paymentId) {
+    const account = await getCurrentAccount();
+    if (!account) throw new ApiError('Authentication required.', 401);
+    if (!paymentId) throw new ApiError('A payment request is required.', 400);
+
+    const { data: payment, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('id', paymentId)
+      .maybeSingle();
+
+    if (error) throw paymentsSetupError(error);
+    if (!payment) throw new ApiError('Payment request not found.', 404);
+    if (payment.status === 'paid') {
+      throw new ApiError('A paid payment cannot be cancelled.', 409);
+    }
+    if (payment.status === 'cancelled') {
+      return { success: true, message: 'This request is already cancelled.', data: payment };
+    }
+
+    const property = await this.getPropertyById(payment.propertyId);
+    const isAdmin = account.role === 'admin';
+    const owns = landlordOwnsProperty(property, {
+      id: account.id,
+      email: account.email,
+      propertyId: null
+    });
+    if (!isAdmin && !owns) {
+      throw new ApiError('You can only cancel requests for your own listings.', 403);
+    }
+
+    const { data, error: cancelError } = await supabase
+      .from('payments')
+      .update({ status: 'cancelled', updatedAt: new Date().toISOString() })
+      .eq('id', paymentId)
+      .select()
+      .maybeSingle();
+
+    if (cancelError) {
+      throw new ApiError(`Could not cancel the payment request: ${cancelError.message}`, 500);
+    }
+
+    return { success: true, message: 'Payment request cancelled.', data: data || { ...payment, status: 'cancelled' } };
   },
 
   async getReceipts(_token) {

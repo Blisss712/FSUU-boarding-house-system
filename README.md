@@ -84,6 +84,35 @@ still use Tailwind's `dark:` variant, which is wired to the same `html.dark` cla
 
 ---
 
+## 💸 Rent Payments & Official Receipts
+
+The landlord and student sides of a tenancy now share one payment ledger:
+
+1. **Landlord invoices** — from **My Listings → Payments**, a host sends a request
+   for monthly rent, move-in advance + deposit, electricity, water, repairs or a
+   custom fee. The tenant, amount, due date, billing period and GCash/bank
+   details are attached to the invoice.
+2. **Student pays** — the bill appears in **My Room → Rent & Payments** with a
+   **Pay Now** button. The student picks GCash / bank transfer / cash / escrow,
+   enters the reference number, and submits it for verification.
+3. **Landlord verifies** — the ledger flags the submitted reference as
+   **Needs Your Confirmation**. Approving it issues the official
+   **Balay Urios receipt**; declining it sends the reason back so the student can
+   re-submit. A landlord can also record cash immediately with **Record as Paid**.
+4. **Receipt on file** — both sides can open, print or save the receipt as PDF
+   from the app. Receipts are never issued before a payment is verified.
+
+Approving a tenant application automatically creates the **Move-in Advance &
+Security Deposit** invoice (two months' rent) instead of claiming a receipt that
+was never paid. The database enforces the workflow: a student can only submit a
+reference — never change an invoice amount or mark their own payment as paid.
+
+**Install:** run `supabase/add-payments.sql` once in the Supabase SQL editor
+(after `add-tenancy-approval.sql`). It creates the `payments` table, its RLS
+policies, the student-update guard trigger, and the landlord receipt policies.
+
+---
+
 ## 🚀 Getting Started
 
 ### 1. Prerequisites
@@ -131,8 +160,8 @@ Balay Urios is now configured to use **Supabase** (PostgreSQL + REST API) as its
    - In your Supabase Dashboard, click on **SQL Editor** (left sidebar).
    - Open and copy the contents of `supabase/full-setup.sql`.
    - Paste into the SQL Editor and click **Run**.
-   - This creates all 10 tables (`properties`, `campuses`, `appliances`, `users`, `ocular_visits`, `sms_logs`, `saved_properties`, `tenancy`, `curfew_slips`, `receipts`) and sets up Row Level Security (RLS) policies. No demo accounts or listings are inserted — real accounts are created through Supabase Auth and real listings through the app.
-   - Then run `supabase/add-messaging.sql` the same way. It adds the chat tables and the automatic **pad group** for every listing (see [In-App Messaging](#in-app-messaging)).
+   - This creates all 12 core tables (`properties`, `campuses`, `appliances`, `users`, `ocular_visits`, `sms_logs`, `saved_properties`, `tenancy`, `curfew_slips`, `receipts`, `payments`, `property_reviews`) and sets up Row Level Security (RLS) policies. No demo accounts or listings are inserted — real accounts are created through Supabase Auth and real listings through the app.
+   - Then run `supabase/add-tenancy-approval.sql`, `supabase/add-payments.sql` and `supabase/add-messaging.sql` the same way. Payments adds the rent ledger + receipt workflow; messaging adds the chat tables and the automatic **pad group** for every listing (see [In-App Messaging](#in-app-messaging)).
 
 3. **Configure Environment Variables**:
    - In Supabase Dashboard, go to **Project Settings** -> **API**.
@@ -476,6 +505,7 @@ All database queries are handled directly via the official Supabase Client (`@su
 | `tenancy` | Official digital tenancy passes, room assignments, and live submeter tracking |
 | `curfew_slips` | Digital curfew exemption slips for hospital/clinical duties |
 | `receipts` | Official verified rent escrow receipts |
+| `payments` | Landlord-issued rent/utility invoices, student payment references, verification status, and receipt links |
 | `saved_properties` | Student bookmarks and saved boarding houses |
 | `property_reviews` | Student ratings (1–5 + review) for a boarding house; only students who boarded may write one |
 | `conversations` | Direct chats, manual group chats, and one automatic **pad group** per listing (`propertyId`) |

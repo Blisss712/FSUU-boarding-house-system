@@ -1,7 +1,7 @@
 /*
  * Dark-mode palette overrides — GENERATED, DO NOT EDIT BY HAND.
  *
- * Source: dist/assets/index-toQahHzI.css
+ * Source: dist/assets/index-B8PO_v8Z.css
  * Rebuild: npm run theme:sync   (build → regenerate → rebuild)
  *
  * Each rule re-maps a utility class used by the components onto the dark
@@ -11,6 +11,10 @@
 
 html.dark :where(.divide-slate-100>:not(:last-child)) {
   border-color: #1e2b42;
+}
+
+html.dark :where(.divide-slate-200>:not(:last-child)) {
+  border-color: #26344e;
 }
 
 html.dark .border-\[\#0b1a30\] {
@@ -95,6 +99,10 @@ html.dark .border-emerald-100 {
 
 html.dark .border-emerald-200 {
   border-color: var(--color-emerald-800);
+}
+
+html.dark .border-emerald-200\/50 {
+  border-color: #132d2180;
 }
 
 html.dark .border-emerald-200\/70 {
@@ -309,6 +317,10 @@ html.dark .bg-amber-50\/70 {
   background-color: #231f0fb3;
 }
 
+html.dark .bg-amber-50\/80 {
+  background-color: #231f0fcc;
+}
+
 html.dark .bg-amber-50\/90 {
   background-color: #231f0fe6;
 }
@@ -445,6 +457,10 @@ html.dark .bg-rose-50 {
   background-color: var(--color-rose-950);
 }
 
+html.dark .bg-rose-50\/40 {
+  background-color: #220f1066;
+}
+
 html.dark .bg-rose-50\/70 {
   background-color: #220f10b3;
 }
@@ -545,6 +561,10 @@ html.dark .bg-slate-950\/70 {
   background-color: #11193cb3;
 }
 
+html.dark .bg-slate-950\/75 {
+  background-color: #11193cbf;
+}
+
 html.dark .bg-slate-950\/80 {
   background-color: #11193ccc;
 }
@@ -609,6 +629,10 @@ html.dark .from-emerald-50 {
   --tw-gradient-from: var(--color-emerald-950);
 }
 
+html.dark .from-emerald-50\/80 {
+  --tw-gradient-from: #0f2319cc;
+}
+
 html.dark .from-slate-200 {
   --tw-gradient-from: #1f2f4b;
 }
@@ -663,6 +687,10 @@ html.dark .via-slate-950\/20 {
 
 html.dark .via-teal-50 {
   --tw-gradient-via: var(--color-teal-950);
+}
+
+html.dark .via-teal-50\/40 {
+  --tw-gradient-via: #0f221e66;
 }
 
 html.dark .via-white {
@@ -1045,6 +1073,10 @@ html.dark .ring-amber-300 {
   --tw-ring-color: var(--color-amber-700);
 }
 
+html.dark .ring-blue-300\/50 {
+  --tw-ring-color: #14202e80;
+}
+
 html.dark .ring-purple-100 {
   --tw-ring-color: var(--color-purple-900);
 }
@@ -1146,6 +1178,10 @@ html.dark .disabled\:to-slate-400:disabled {
     border-color: color-mix(in oklab, var(--color-blue-800) 90%, transparent);
   }
 
+  html.dark .border-emerald-200\/50 {
+    border-color: color-mix(in oklab, var(--color-emerald-800) 50%, transparent);
+  }
+
   html.dark .border-emerald-200\/70 {
     border-color: color-mix(in oklab, var(--color-emerald-800) 70%, transparent);
   }
@@ -1192,6 +1228,10 @@ html.dark .disabled\:to-slate-400:disabled {
 
   html.dark .bg-amber-50\/70 {
     background-color: color-mix(in oklab, var(--color-amber-950) 70%, transparent);
+  }
+
+  html.dark .bg-amber-50\/80 {
+    background-color: color-mix(in oklab, var(--color-amber-950) 80%, transparent);
   }
 
   html.dark .bg-amber-50\/90 {
@@ -1266,6 +1306,10 @@ html.dark .disabled\:to-slate-400:disabled {
     background-color: color-mix(in oklab, var(--color-purple-950) 50%, transparent);
   }
 
+  html.dark .bg-rose-50\/40 {
+    background-color: color-mix(in oklab, var(--color-rose-950) 40%, transparent);
+  }
+
   html.dark .bg-rose-50\/70 {
     background-color: color-mix(in oklab, var(--color-rose-950) 70%, transparent);
   }
@@ -1322,6 +1366,10 @@ html.dark .disabled\:to-slate-400:disabled {
     background-color: color-mix(in oklab, #070e1a 70%, transparent);
   }
 
+  html.dark .bg-slate-950\/75 {
+    background-color: color-mix(in oklab, #070e1a 75%, transparent);
+  }
+
   html.dark .bg-slate-950\/80 {
     background-color: color-mix(in oklab, #070e1a 80%, transparent);
   }
@@ -1358,6 +1406,10 @@ html.dark .disabled\:to-slate-400:disabled {
     --tw-gradient-from: color-mix(in oklab, var(--color-blue-950) 70%, transparent);
   }
 
+  html.dark .from-emerald-50\/80 {
+    --tw-gradient-from: color-mix(in oklab, var(--color-emerald-950) 80%, transparent);
+  }
+
   html.dark .from-violet-50\/90 {
     --tw-gradient-from: color-mix(in oklab, var(--color-violet-950) 90%, transparent);
   }
@@ -1372,6 +1424,10 @@ html.dark .disabled\:to-slate-400:disabled {
 
   html.dark .via-slate-950\/20 {
     --tw-gradient-via: color-mix(in oklab, #070e1a 20%, transparent);
+  }
+
+  html.dark .via-teal-50\/40 {
+    --tw-gradient-via: color-mix(in oklab, var(--color-teal-950) 40%, transparent);
   }
 
   html.dark .to-amber-50\/30 {
@@ -1426,6 +1482,10 @@ html.dark .disabled\:to-slate-400:disabled {
     --tw-ring-color: color-mix(in oklab, var(--color-amber-700) 70%, transparent);
   }
 
+  html.dark .ring-blue-300\/50 {
+    --tw-ring-color: color-mix(in oklab, var(--color-blue-700) 50%, transparent);
+  }
+
   html.dark .ring-emerald-300\/50 {
     --tw-ring-color: color-mix(in oklab, var(--color-emerald-700) 50%, transparent);
   }
@@ -1438,6 +1498,10 @@ html.dark .disabled\:to-slate-400:disabled {
 
   html.dark .hover\:border-\[\#0b1a30\]\/40:hover {
     border-color: #19315566;
+  }
+
+  html.dark .hover\:border-blue-200:hover {
+    border-color: var(--color-blue-800);
   }
 
   html.dark .hover\:border-blue-300:hover {
@@ -1514,6 +1578,10 @@ html.dark .disabled\:to-slate-400:disabled {
 
   html.dark .hover\:bg-blue-50\/30:hover {
     background-color: #0f17224d;
+  }
+
+  html.dark .hover\:bg-blue-50\/60:hover {
+    background-color: #0f172299;
   }
 
   html.dark .hover\:bg-blue-50\/70:hover {
@@ -1632,6 +1700,10 @@ html.dark .disabled\:to-slate-400:disabled {
     color: var(--color-blue-100);
   }
 
+  html.dark .hover\:text-emerald-700:hover {
+    color: var(--color-emerald-300);
+  }
+
   html.dark .hover\:text-emerald-950:hover {
     color: var(--color-emerald-100);
   }
@@ -1693,6 +1765,10 @@ html.dark .disabled\:to-slate-400:disabled {
 
   html.dark .hover\:bg-blue-50\/30:hover {
     background-color: color-mix(in oklab, var(--color-blue-950) 30%, transparent);
+  }
+
+  html.dark .hover\:bg-blue-50\/60:hover {
+    background-color: color-mix(in oklab, var(--color-blue-950) 60%, transparent);
   }
 
   html.dark .hover\:bg-blue-50\/70:hover {
